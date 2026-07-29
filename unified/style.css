@@ -1,60 +1,95 @@
-body {
-  margin: 0; padding: 20px 24px;
-  background: #12151f; color: #e8ecf4;
-  font-family: "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+/* 골격은 line-wire/higher-order/style.css 를 그대로 옮긴 것이다.
+   body flex column + overflow hidden / .app-main flex / 사이드바 고정폭 / 오른쪽 flex:1 */
+:root { --bg:#0e1020; --fg:#e8ebf5; --mut:#8892b5; --line:#2a3050; --card:#141a2c; }
+* { box-sizing:border-box; }
+html, body { height:100%; }
+body { margin:0; padding:14px 16px; background:var(--bg); color:var(--fg);
+  font-family:"Malgun Gothic","맑은 고딕","Segoe UI",system-ui,sans-serif;
+  display:flex; flex-direction:column; overflow:hidden; }
+
+/* ---- 머리 (70px 예산) ---- */
+.page-head { flex:0 0 auto; }
+h1 { font-size:1.15rem; margin:0 0 3px; font-weight:600; }
+.sub { color:var(--mut); font-size:0.85rem; margin:0 0 10px; }
+.badge { display:inline-block; padding:2px 10px; border-radius:10px; font-size:0.78rem; }
+.badge.cutoff { background:#2a3550; color:#9fc4ff; }
+.badge.prop   { background:#2f3a2c; color:#a8d99a; }
+
+/* ---- 본문: 좌 사이드바 + 우 그리드 ---- */
+.app-main { flex:1 1 auto; min-height:0; display:flex; gap:14px; }
+
+/* 사이드바 — 내부만 스크롤, 계시기는 하단 고정 */
+.sidebar { flex:0 0 340px; width:340px; display:flex; flex-direction:column;
+  background:var(--card); border:1px solid var(--line); border-radius:10px; }
+.sidebar-scroll { flex:1 1 auto; min-height:0; overflow-y:auto; padding:12px 14px; }
+.sidebar-foot { flex:0 0 auto; border-top:1px solid var(--line); padding:9px 14px; }
+
+/* 컨트롤 3분할 — §10-0. UI 정리가 아니라 '같은 입력'의 의미를 화면 구조로 말하는 장치다.
+   세로로 쌓되 세 그룹을 각각 독립된 박스로 유지한다. 평평한 목록으로 뭉개지 말 것. */
+fieldset { border:1px solid var(--line); border-radius:8px; padding:8px 11px 10px;
+  margin:0 0 12px; background:#121728; }
+fieldset:last-of-type { margin-bottom:0; }
+legend { font-size:0.8rem; color:#d6dcf7; padding:0 6px; font-weight:600; }
+legend em { color:var(--mut); font-style:normal; font-size:0.72rem; font-weight:400; display:block;
+  padding-top:1px; }
+label { display:block; font-size:0.78rem; margin:6px 0; color:var(--mut); }
+label input[type=range] { width:100%; display:block; margin:2px 0 1px; }
+label b { font-weight:500; color:var(--fg); font-size:0.72rem; }
+label.chk { display:flex; align-items:flex-start; gap:6px; }
+label.chk input { width:auto; margin:2px 0 0; flex:0 0 auto; }
+label.chk em { color:var(--mut); font-style:normal; font-size:0.7rem; display:block; }
+button { background:#1b2140; color:var(--fg); border:1px solid #3a4270;
+  border-radius:6px; padding:5px 10px; cursor:pointer; font-size:0.78rem; font-family:inherit; }
+button:hover { background:#252d54; }
+.presets { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+.preset { white-space:normal; min-height:42px; line-height:1.3; font-size:0.72rem;
+  display:flex; align-items:center; justify-content:center; text-align:center; }
+.preset.active { background:#33406b; border-color:#4a5b93; }
+.readout { font-size:0.7rem; color:var(--mut); margin-top:4px;
+  font-family:Consolas,"D2Coding",monospace; line-height:1.45; }
+.caption { font-size:0.7rem; color:var(--mut); margin-top:7px; }
+.warn { font-size:0.7rem; margin-top:5px; padding:4px 7px; border-radius:4px;
+  background:#3a2a2a; color:#ffb3b3; line-height:1.4; }
+.timer { font-size:0.71rem; color:var(--mut); font-family:Consolas,"D2Coding",monospace; line-height:1.5; }
+.busy { font-size:0.72rem; color:#ffd54a; margin-top:3px; }
+.diff { font-size:0.78rem; color:#9fc4ff; margin-bottom:4px; }
+
+/* ---- 오른쪽 비교 그리드 ----
+   열머리 45 / 캔버스 3행(1fr) / 캡션 auto.  캔버스는 백킹 520×220 유지, CSS로만 축소. */
+.compare { flex:1 1 auto; min-width:0; display:grid;
+  grid-template-columns:56px 1fr 1fr;
+  grid-template-rows:auto 1fr 1fr 1fr auto;
+  gap:8px 10px; }
+.hcell { font-size:0.8rem; color:#d6dcf7; align-self:end; line-height:1.3; }
+.hcell em { color:var(--mut); font-style:normal; font-size:0.72rem; display:block; }
+.rlabel { font-size:0.78rem; color:#d6dcf7; align-self:center; line-height:1.35; }
+.rlabel .sc { display:block; font-size:0.62rem; color:var(--mut);
+  font-family:Consolas,monospace; margin-top:2px; word-break:break-all; }
+.panel { min-height:0; min-width:0; display:flex; }
+.panel canvas { width:100%; height:100%; object-fit:contain; display:block;
+  image-rendering:pixelated; background:#fff;
+  border:1px solid var(--line); border-radius:4px; }
+.capcell { font-size:0.68rem; line-height:1.45; color:#7e879e; }
+.capcell p { margin:0 0 4px; }
+.capcell p:last-child { margin-bottom:0; }
+
+.footcap { flex:0 0 auto; margin:8px 0 0; font-size:0.74rem; line-height:1.5; color:var(--mut);
+  border-top:1px solid var(--line); padding-top:7px; }
+
+#debugbox { flex:0 0 auto; max-height:190px; overflow:auto; margin-top:8px; }
+#debugbox h2 { font-size:0.78rem; margin:0 0 4px; color:var(--mut); }
+pre { background:#10152a; border:1px solid var(--line); border-radius:6px;
+  padding:9px 11px; font-size:0.68rem; line-height:1.5; margin:0;
+  font-family:Consolas,"D2Coding",monospace; white-space:pre-wrap; overflow-x:auto; }
+pre.pass { border-color:#2f6b45; }
+pre.fail { border-color:#7d3340; }
+
+/* 반응형: 1366px 이하면 사이드바 위 · 그리드 아래 세로 배치로 복귀 (원본과 같은 폴백) */
+@media (max-width:1365px){
+  body { overflow:auto; height:auto; }
+  .app-main { flex-direction:column; }
+  .sidebar { flex:0 0 auto; width:auto; }
+  .sidebar-scroll { overflow:visible; }
+  .compare { grid-template-rows:auto auto auto auto auto; }
+  .panel canvas { height:auto; }
 }
-h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
-h2 { font-size: 14px; margin: 18px 0 6px; color: #8b93a7; }
-.sub { margin: 0 0 16px; color: #8b93a7; font-size: 13px; }
-.wrap { max-width: 1180px; }
-
-.badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; }
-.badge.cutoff { background: #2a3550; color: #9fc4ff; }
-.badge.prop   { background: #2f3a2c; color: #a8d99a; }
-
-/* ---- 컨트롤 3분할 ---- */
-.controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
-fieldset { border: 1px solid #2b3145; border-radius: 8px; padding: 10px 12px 12px; margin: 0; }
-legend { font-size: 12px; color: #cfd6e6; padding: 0 6px; }
-legend em { color: #6b748f; font-style: normal; font-size: 11px; }
-label { display: block; font-size: 12px; margin: 7px 0; color: #b9c1d4; }
-label input[type=range] { width: 100%; display: block; margin: 3px 0 1px; }
-label b { font-weight: 500; color: #e8ecf4; font-size: 11px; }
-label.chk { display: flex; align-items: center; gap: 6px; }
-label.chk input { width: auto; margin: 0; }
-label.chk em { color: #6b748f; font-style: normal; font-size: 11px; }
-button { background: #232a3d; color: #e8ecf4; border: 1px solid #333c56;
-  border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
-button:hover { background: #2c3550; }
-.presets { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.preset { text-align: left; font-size: 11px; }
-.preset.active { background: #33406b; border-color: #4a5b93; }
-.readout { font-size: 11px; color: #8b93a7; margin-top: 5px; font-family: Consolas, monospace; }
-.caption { font-size: 11px; color: #6b748f; margin-top: 8px; }
-.warn { font-size: 11px; margin-top: 5px; padding: 4px 7px; border-radius: 4px;
-  background: #3a2a2a; color: #ffb3b3; }
-
-/* ---- 3×2 격자 ---- */
-.grid { display: grid; grid-template-columns: 68px 1fr 1fr; gap: 10px; align-items: start; }
-.hcell { font-size: 12px; color: #cfd6e6; padding-bottom: 2px; }
-.hcell em { color: #6b748f; font-style: normal; font-size: 11px; display: block; }
-.rlabel { font-size: 12px; color: #cfd6e6; padding-top: 4px; }
-.rlabel .sc { display: block; font-size: 10px; color: #6b748f; font-family: Consolas, monospace; margin-top: 2px; }
-.panel canvas {
-  width: 100%; height: auto; display: block;
-  image-rendering: pixelated;              /* 백킹 520×220을 CSS로 축소 (v1 §9-5) */
-  border: 1px solid #2b3145; border-radius: 4px; background: #fff;
-}
-.mcap { font-size: 10.5px; line-height: 1.5; color: #7e879e; margin: 5px 0 0; }
-
-.diff { margin: 12px 0 0; font-size: 13px; color: #9fc4ff; }
-.timer { margin: 6px 0 0; font-size: 12px; color: #8b93a7; font-family: Consolas, monospace; }
-.busy { margin: 6px 0 0; font-size: 12px; color: #ffd54a; }
-.footcap { margin: 14px 0 0; font-size: 12px; line-height: 1.6; color: #8b93a7;
-  border-top: 1px solid #2b3145; padding-top: 10px; }
-
-pre { background: #1a1e2b; border: 1px solid #2b3145; border-radius: 6px;
-  padding: 12px 14px; font-size: 11.5px; line-height: 1.55;
-  font-family: Consolas, "D2Coding", monospace; white-space: pre-wrap; overflow-x: auto; }
-pre.pass { border-color: #2f6b45; }
-pre.fail { border-color: #7d3340; }

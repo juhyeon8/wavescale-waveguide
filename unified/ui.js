@@ -66,17 +66,29 @@
     rulerS = R.rulerSpec(state.a, state.lambda);
 
     timing = { image: t1 - t0, wire: t2 - t1, measure: t3 - t2, render: 0, total: 0 };
+    markDirty();
     window.__meas = meas;
     syncReadouts(meas);
+    drawFrame();          // rAF를 기다리지 않는다 (창이 숨겨져 있어도 그림이 남는다)
   }
 
   /* ---------------- 렌더 ---------------- */
-  var CTX = {}, lastDebug = null;
+  var CTX = {}, dirty = true;
   function ctxOf(id) { return CTX[id] || (CTX[id] = el(id).getContext('2d')); }
+  function markDirty() { dirty = true; }
 
+  // rAF는 창이 숨겨지면 아예 실행되지 않는다. 첫 프레임은 기다리지 않고 직접 그린다.
   function render() {
+    // 정지 중이고 바뀐 것이 없으면 다시 그리지 않는다 (CPU 절약 + 화면이 안정되어 캡처 가능)
+    if (!scenes || (state.paused && !dirty)) { requestAnimationFrame(render); return; }
     if (!state.paused) state.phase += state.dPhi;
-    if (!scenes) { requestAnimationFrame(render); return; }
+    drawFrame();
+    requestAnimationFrame(render);
+  }
+
+  function drawFrame() {
+    if (!scenes) return;
+    dirty = false;
     var t0 = performance.now();
     var dbg = { panels: {} };
 
@@ -98,8 +110,7 @@
       'ms · 측정 ' + timing.measure.toFixed(0) + 'ms · 렌더 ' + timing.render.toFixed(0) +
       'ms · 합계 ' + timing.total.toFixed(0) + 'ms';
 
-    if (DEBUG) { lastDebug = dbg; dumpDebug(dbg); }
-    requestAnimationFrame(render);
+    if (DEBUG) dumpDebug(dbg);
   }
 
   /* ---------------- ?debug=1 텍스트 출력 ---------------- */
@@ -211,7 +222,7 @@
   function bind(id, fn, mode) {
     el(id).addEventListener('input', function (e) {
       fn(e.target);
-      if (mode === 'view') { el('gammaVal').textContent = state.gamma.toFixed(2); }
+      if (mode === 'view') { el('gammaVal').textContent = state.gamma.toFixed(2); markDirty(); }
       else schedule();
     });
   }
@@ -238,7 +249,7 @@
     });
     el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
     el('pauseBtn').addEventListener('click', function () {
-      state.paused = !state.paused;
+      state.paused = !state.paused; markDirty();
       el('pauseBtn').textContent = state.paused ? '▶ 재개' : '⏸ 일시정지';
     });
 

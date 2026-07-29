@@ -20,17 +20,43 @@
     var d = Math.round(255 * (1 + t)); return [d, d, 255];
   }
 
+  // 감마 룩업 — 매 프레임 686,400회 Math.pow를 돌리면 렌더러가 멈춘다.
+  // 색 규칙 자체는 colorForValue와 동일하다 (표시 규약을 바꾸는 것이 아니다).
+  var LUT_N = 1024, _lut = null, _lutGamma = -1;
+  function gammaLUT(gamma) {
+    if (_lutGamma === gamma) return _lut;
+    var t = new Uint8Array(LUT_N + 1);
+    for (var i = 0; i <= LUT_N; i++) t[i] = (255 * (1 - Math.pow(i / LUT_N, gamma)) + 0.5) | 0;
+    _lut = t; _lutGamma = gamma; return t;
+  }
+
+  var _imgCache = new WeakMap();
+  function imageDataFor(ctx, Nx, Ny) {
+    var img = _imgCache.get(ctx);
+    if (!img || img.width !== Nx || img.height !== Ny) {
+      img = ctx.createImageData(Nx, Ny);
+      var d = img.data;
+      for (var p = 3; p < d.length; p += 4) d[p] = 255;   // 알파는 한 번만
+      _imgCache.set(ctx, img);
+    }
+    return img;
+  }
+
   function drawField(ctx, field, scale, gamma, phase) {
     var Nx = field.Nx, Ny = field.Ny, re = field.re, im = field.im;
-    var img = ctx.createImageData(Nx, Ny), px = img.data;
+    var img = imageDataFor(ctx, Nx, Ny), px = img.data;
     var cw = Math.cos(phase), sw = Math.sin(phase);
+    var lut = gammaLUT(gamma), inv = 1 / scale;
     for (var i = 0; i < Nx; i++) {
-      for (var j = 0; j < Ny; j++) {
-        var idx = i * Ny + j;
-        var v = re[idx] * cw + im[idx] * sw;
-        var rgb = colorForValue(v, scale, gamma);
+      var idx = i * Ny;
+      for (var j = 0; j < Ny; j++, idx++) {
+        var v = (re[idx] * cw + im[idx] * sw) * inv;
+        var neg = v < 0; if (neg) v = -v;
+        if (v > 1) v = 1;
+        var c = lut[(v * LUT_N) | 0];
         var p = ((Ny - 1 - j) * Nx + i) * 4;      // 캔버스 y는 아래로 증가 → 뒤집는다
-        px[p] = rgb[0]; px[p + 1] = rgb[1]; px[p + 2] = rgb[2]; px[p + 3] = 255;
+        if (neg) { px[p] = c; px[p + 1] = c; px[p + 2] = 255; }
+        else     { px[p] = 255; px[p + 1] = c; px[p + 2] = c; }
       }
     }
     ctx.putImageData(img, 0, 0);
@@ -119,6 +145,8 @@
     scene.markers.forEach(function (m) {
       stat[m.kind] = (stat[m.kind] || 0) + 1;
       var x = m.xPix + 0.5, y = cy(m.yPix) + 0.5;
+      // 영상원은 y = y0 ± r·a 라 대부분 캔버스 밖이다 (N=160이면 ±9600셀). 미리 걸러낸다.
+      if (y < -6 || y > GEO.Ny + 6 || x < -6 || x > GEO.Nx + 6) return;
       if (m.kind === 'image-source') {
         ctx.strokeStyle = 'rgba(120,150,220,' + Math.max(0.15, m.weight) + ')';
         ctx.lineWidth = 1;
