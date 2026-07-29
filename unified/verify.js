@@ -442,28 +442,44 @@ function runG5() {
 
 /* ================================================================= TIME 성능 실측 */
 // 최악 조건은 λ=2.4cm(24셀) — dAuto=1.32, 도선 456개. 디바운스 250ms 뒤 1.5초를 넘으면 보고·중단.
+// 단일 측정은 JIT·GC 때문에 3~4배까지 흔들린다. 워밍업 후 중앙값을 쓴다.
+// (임계값을 느슨하게 하는 것이 아니라 측정을 신뢰 가능하게 만드는 것)
+function bench(fn, rep, warm) {
+  rep = rep || 5; warm = warm || 2;
+  for (var i = 0; i < warm; i++) fn();
+  var ts = [];
+  for (var j = 0; j < rep; j++) {
+    var t = process.hrtime.bigint(); fn(); ts.push(Number(process.hrtime.bigint() - t) / 1e6);
+  }
+  ts.sort(function (x, y) { return x - y; });
+  return { med: ts[ts.length >> 1], min: ts[0], max: ts[ts.length - 1] };
+}
+
 function runTIME() {
-  hr('[TIME] 재계산 실측 시간');
-  L('  영상법 N별 (a=60, λ=144):');
-  L('     N     단순 합     Cesàro');
-  [80, 160, 320].forEach(function (N) {
-    var ts = [false, true].map(function (ces) {
-      var t = Date.now();
-      AD.imageScene({ lambda: 144, a: 60, y0OverA: 0.5, N: N, cesaro: ces });
-      return Date.now() - t;
-    });
-    L('   ' + pad(N, 4) + '   ' + pad(ts[0] + 'ms', 8) + '   ' + pad(ts[1] + 'ms', 8) +
-      (N === GEO.N ? '   ← 기본값' : ''));
-  });
+  hr('[TIME] 재계산 실측 시간 — 워밍업 2회 후 5회, 중앙값');
+  L('  ⚠ node 측정이며 브라우저와 다르다. 이 환경은 부하 변동이 커서 같은 계산이 3~4배까지 흔들린다.');
+  L('  구조적 비용: 최악 λ=24셀 → d=' + AD.dAuto(24).toFixed(3) + ', 도선 ' + (2 * GEO.nWires(AD.dAuto(24))) +
+    '개 → MoM O(n³) ≈ ' + (Math.pow(2 * GEO.nWires(AD.dAuto(24)), 3) / 1e6).toFixed(0) + 'M 복소연산');
   L();
-  L('  최악 조건 λ=2.4cm (24셀), d=' + AD.dAuto(24).toFixed(3) + ', 도선 ' + (2 * GEO.nWires(AD.dAuto(24))) + '개:');
-  [80, 160, 320].forEach(function (N) {
-    var t1 = Date.now(); AD.imageScene({ lambda: 24, a: 60, y0OverA: 0.5, N: N }); var mi = Date.now() - t1;
-    var t2 = Date.now(); AD.wireScene({ lambda: 24, a: 60, y0OverA: 0.5 }); var mw = Date.now() - t2;
-    var tot = mi + mw;
-    L('   N=' + pad(N, 4) + '   영상법 ' + pad(mi + 'ms', 8) + ' + 도선관 ' + pad(mw + 'ms', 8) +
-      ' = ' + pad(tot + 'ms', 8) + '   ' + (tot > 1500 ? '⛔ 1.5초 초과' : 'OK'));
-    if (N === GEO.N && tot > 1500) BREACH.push('TIME 최악조건 N=' + N + ' ' + tot + 'ms > 1500ms');
+  L('    조건              단계             중앙값     최소     최대');
+  L('  ' + '-'.repeat(66));
+  [[144, '기본 λ=14.4cm'], [24, '최악 λ=2.4cm']].forEach(function (LC) {
+    var lam = LC[0];
+    var bi = bench(function () { AD.imageScene({ lambda: lam, a: 60, y0OverA: 0.5 }); });
+    var bw = bench(function () { AD.wireScene({ lambda: lam, a: 60, y0OverA: 0.5 }); });
+    var bb = bench(function () {
+      AD.imageScene({ lambda: lam, a: 60, y0OverA: 0.5 });
+      AD.wireScene({ lambda: lam, a: 60, y0OverA: 0.5 });
+    });
+    [['영상법 N=' + GEO.N, bi], ['도선관 (도선 ' + (2 * GEO.nWires(AD.dAuto(lam))) + ')', bw],
+     ['탭 3 = 둘 다', bb]].forEach(function (row, i) {
+      L('  ' + padR(i === 0 ? LC[1] : '', 16) + padR(row[0], 18) +
+        pad(row[1].med.toFixed(0), 6) + '   ' + pad(row[1].min.toFixed(0), 6) + '   ' + pad(row[1].max.toFixed(0), 6) +
+        (i === 2 ? '   ' + (row[1].med > 1500 ? '⛔ 1.5초 초과' : 'OK') : ''));
+    });
+    if (lam === 24 && bb.med > 1500)
+      BREACH.push('TIME 최악조건 탭3 ' + bb.med.toFixed(0) + 'ms > 1500ms  (v1 §11-1: 사람이 Worker 도입 결정)');
+    L('  ' + '-'.repeat(66));
   });
 }
 
