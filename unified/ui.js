@@ -210,6 +210,35 @@
     return Math.sqrt(sum / cnt) / Math.sqrt(mx);
   }
 
+  /* ---------------- 배치 ----------------
+   * 캔버스 종횡비(520:220)를 컨테이너가 정확히 갖게 만든다 → 레터박스가 생기지 않는다.
+   *   행 높이 = (가용 높이 − 열머리 − 캡션 − 행간격) / 3
+   *   컬럼 폭 = 행 높이 × Nx/Ny
+   * 캡션 높이는 컬럼 폭에 의존하므로(줄바꿈) 2회 반복해 수렴시킨다.
+   * 남는 가로 폭은 사이드바가 전부 흡수한다 (.sidebar flex:1 1 auto). */
+  var GAP_Y = 8, LBL_W = 56, SIDEBAR_2COL = 560;
+
+  function layout() {
+    var main = document.querySelector('.app-main'), grid = el('compare'), side = el('sidebar');
+    if (!main || !grid) return;
+
+    if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
+      grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = '';
+      side.classList.remove('wide');
+      return;
+    }
+    for (var pass = 0; pass < 2; pass++) {
+      var headH = el('head-image').offsetHeight;
+      var capH = Math.max(el('cap-image').offsetHeight, el('cap-wire').offsetHeight);
+      var rowH = Math.floor((main.clientHeight - headH - capH - 4 * GAP_Y) / 3);
+      if (!(rowH > 40)) return;
+      var colW = Math.round(rowH * GEO.Nx / GEO.Ny);
+      grid.style.gridTemplateColumns = LBL_W + 'px ' + colW + 'px ' + colW + 'px';
+      grid.style.gridTemplateRows = 'auto ' + rowH + 'px ' + rowH + 'px ' + rowH + 'px auto';
+    }
+    side.classList.toggle('wide', side.clientWidth >= SIDEBAR_2COL);
+  }
+
   /* ---------------- 입력 ---------------- */
   var debounce = null;
   function schedule() {
@@ -277,6 +306,13 @@
 
     if (DEBUG) el('debugbox').style.display = '';
     el('nImg').max = GEO.N_MAX;
+
+    layout();
+    var relayout = null;
+    function scheduleLayout() { clearTimeout(relayout); relayout = setTimeout(layout, 80); }
+    window.addEventListener('resize', scheduleLayout);
+    if (window.ResizeObserver) new ResizeObserver(scheduleLayout).observe(document.querySelector('.app-main'));
+
     recompute();
     requestAnimationFrame(render);
   }

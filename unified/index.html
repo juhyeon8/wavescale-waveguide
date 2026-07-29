@@ -17,10 +17,10 @@
   <!-- ===== 좌 사이드바 — 컨트롤 3분할 (v1 §10-0) =====
        UI 정리가 아니라 "같은 입력"의 의미를 화면 구조로 말하는 장치다.
        세 그룹을 각각 독립된 박스로 유지한다. -->
-  <div class="sidebar">
+  <div class="sidebar" id="sidebar">
     <div class="sidebar-scroll">
 
-      <fieldset>
+      <fieldset id="g-phys">
         <legend>물리 입력 <em>두 방법 공통 · 하나의 슬라이더가 양쪽을 동시에 구동</em></legend>
         <label>λ <input id="lambda" type="range" min="2.4" max="15.0" step="0.1" value="14.4"><b id="lambdaVal"></b></label>
         <label>a <input id="aGap" type="range" min="4.8" max="16.0" step="0.2" value="6.0"><b id="aVal"></b></label>
@@ -29,7 +29,7 @@
         <div id="presets" class="presets"></div>
       </fieldset>
 
-      <fieldset>
+      <fieldset id="g-num">
         <legend>수치 품질 <em>방법별로 따로 · 물리 입력이 아니다</em></legend>
         <label>영상 쌍 N <input id="nImg" type="range" min="0" max="320" step="1" value="160"><b id="nVal"></b></label>
         <label class="chk"><input id="cesaro" type="checkbox" checked>
@@ -46,7 +46,7 @@
         <div id="warnBox"></div>
       </fieldset>
 
-      <fieldset>
+      <fieldset id="g-disp">
         <legend>표시 <em>물리와 무관</em></legend>
         <label>감마 <input id="gamma" type="range" min="0.2" max="1.0" step="0.05" value="0.4"><b id="gammaVal"></b></label>
         <label class="chk"><input id="singleScale" type="checkbox"><span>6패널 단일 스케일</span></label>
@@ -66,9 +66,9 @@
   </div>
 
   <!-- ===== 우 비교 그리드 3×2 ===== -->
-  <div class="compare">
+  <div class="compare" id="compare">
     <div class="hcell"></div>
-    <div class="hcell">영상법 <em>무한 평행판 · 이상적 도체</em></div>
+    <div class="hcell" id="head-image">영상법 <em>무한 평행판 · 이상적 도체</em></div>
     <div class="hcell">도선 관 <em>유한 길이 · 양 끝 열림</em></div>
 
     <div class="rlabel">입사파<span class="sc" id="scale-inc"></span></div>
@@ -85,11 +85,11 @@
 
     <!-- 캡션 행 — 열 단위. §8-3의 세 문구를 그대로 쓴다. -->
     <div class="rlabel"></div>
-    <div class="capcell">
+    <div class="capcell" id="cap-image">
       <p>영상 합은 벽 사이에서만 해를 재현합니다. 무한히 뻗은 도체판 바깥의 참값은 0이지만,
       유한 개의 영상 합은 그 0을 만들지 못합니다. 그래서 이 영역은 표시하지 않습니다.</p>
     </div>
-    <div class="capcell">
+    <div class="capcell" id="cap-wire">
       <p><b>벽 바깥</b> — 도선 사이 틈으로 새어 나온 실재하는 장입니다. 이상적 도체판을 가정한
       영상법에는 대응물이 없어, 좌우 비교 대상이 아닙니다.</p>
       <p><b>관 앞뒤</b> — 도선 벽이 없는 자유공간입니다. 영상법은 이 위치에도 벽이 있으므로(무한 평행판),
