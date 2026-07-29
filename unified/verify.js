@@ -34,7 +34,7 @@ var COND = {
   P3: { name: '③ 2모드',    a: 60, lambda:  48, y0OverA: 0.25  },   // = G3(b)
   P4: { name: '④ 3모드',    a: 60, lambda:  33, y0OverA: 0.167 }    // = G3(c) 슬라이더 스냅값
 };
-var N_IMG = 80;   // v1 §13: N=40은 잘림 간섭의 골짜기(κ 76%)라 쓰면 안 된다
+var N_IMG = GEO.N;   // 160. Cesàro 기본 (GEO.CESARO)
 
 // 세 열 — 모드합 / 영상법 / 도선관. d 는 resolvable 판정에만 쓴다.
 function columns(c) {
@@ -46,10 +46,26 @@ function columns(c) {
   ];
 }
 
+// 값 + R² 를 한 칸에. R²는 가드로 켜지 않고 보고만 한다 (임계값 미정).
+function cell(r, thy, width) {
+  var s = (r.value === null) ? r.reason
+        : (r.value / thy * 100).toFixed(1) + '% R²' + (r.r2 === undefined ? '—' : r.r2.toFixed(4));
+  return padR(s, width || 24);
+}
+
+// 임계값 사전 규칙 (조건부 확정) — 벗어나면 멈추고 보고한다. 느슨하게 고치지 않는다.
+var TH = { G2: 0.03, G3: 0.03, G4_wire: 0.03, G4_image: 0.08 };
+var BREACH = [];
+function chk(name, val, lim) {
+  if (val > lim) BREACH.push(name + ' = ' + val.toFixed(4) + ' > ' + lim);
+  return val <= lim;
+}
+
 function qualityLine(cols) {
   var q = {};
   cols.forEach(function (c) { q[c.key] = c.scene.quality; });
-  return '  모드합: (해석해)   영상법: N=' + q.image.N + ', plateAvg=' + q.image.plateAvg.toFixed(6) + '\n' +
+  return '  모드합: (해석해)   영상법: N=' + q.image.N + (q.image.cesaro ? '(Cesàro)' : '(단순 합)') +
+         ', plateAvg=' + q.image.plateAvg.toFixed(6) + '\n' +
          '  도선관: d=' + q.wire.d.toFixed(3) + ', a_w=' + q.wire.aw.toFixed(4) +
          (q.wire.awAuto ? '(자동 d/2π)' : '(수동)') +
          ', a_w/d=' + q.wire.awOverD.toFixed(4) +
@@ -157,17 +173,21 @@ function runG2() {
     var res = 1 / kap >= AD.dAuto(c.lambda);
     L('  mode ' + n + '  (이론 κ = ' + kap.toFixed(7) + ' /셀,  1/κ = ' + (1 / kap).toFixed(2) +
       '셀,  결합 = ' + cp.toExponential(2) + ',  도선관 resolvable ' + (res ? '✓' : '✗') + ')');
-    L('    창          z구간             ' + cols.map(function (q) { return padR(q.label, 22); }).join(''));
+    L('    창          z구간             ' + cols.map(function (q) { return padR(q.label, 24); }).join(''));
     M.WINDOW_IDS.forEach(function (w) {
       var win = M.kappaWindow(w, kap);
       var cells = cols.map(function (q) {
         var r = M.measureKappa(q.scene.tot, c.a, n, w, q.d, kap);
-        if (r.value === null) return padR(r.reason, 22);
-        var pct = r.value / kap * 100;
-        if (q.key === 'sum') dev.push(Math.abs(pct - 100));
-        return padR(pct.toFixed(1) + '%', 22);
+        if (r.value !== null) {
+          var pct = r.value / kap * 100;
+          if (q.key === 'sum') dev.push(Math.abs(pct - 100));
+          // 임계값 사전 규칙: 창 C · 모드 1 · 값이 나온 모든 열
+          if (w === GEO.KAPPA_WIN && n === 1) chk('G2 창C mode1 ' + q.label, Math.abs(pct / 100 - 1), TH.G2);
+        }
+        return cell(r, kap);
       });
-      L('    ' + padR(M.WINDOW_LABEL[w], 11) + padR('[' + win.zStart.toFixed(1) + ', ' + win.zEnd.toFixed(1) + ']', 17) + cells.join(''));
+      L('    ' + padR(M.WINDOW_LABEL[w], 11) + padR('[' + win.zStart.toFixed(1) + ', ' + win.zEnd.toFixed(1) + ']', 17) + cells.join('') +
+        (w === GEO.KAPPA_WIN ? ' ★확정창' : ''));
     });
   }
   L();
@@ -221,6 +241,10 @@ function runG2P() {
   var cols = columns(c);
   var k = 2 * Math.PI / c.lambda;
 
+  // 단순 합 열을 하나 더 붙인다 — 진동은 결과이므로 보존해 나란히 보인다 (설계 §11-7)
+  cols = cols.concat([{ key: 'plain', label: '단순합',
+    scene: AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, N: N_IMG, cesaro: false }) }]);
+
   [1, 2].forEach(function (n) {
     var kap = M.theoryKappa(n, c.a, k);
     if (kap === null) return;
@@ -232,11 +256,11 @@ function runG2P() {
     L();
     L('  mode ' + n + '  부분창 ' + profs[0].len.toFixed(0) + '셀,  결합 ' + M.coupling(n, c.y0OverA).toExponential(2) +
       '   (창 ' + wins + ')');
-    L('    z중심    ' + cols.map(function (q) { return pad(q.label, 9); }).join('') + '   비고');
+    L('    z중심    ' + cols.map(function (q) { return pad(q.label + ' (R²)', 17); }).join('') + '   비고');
     profs[0].rows.forEach(function (row, i) {
       var cells = profs.map(function (p) {
-        var r = p.rows[i].ratio;
-        return pad(r === null ? '—' : (r * 100).toFixed(1) + '%', 9);
+        var r = p.rows[i].ratio, q2 = p.rows[i].r2;
+        return pad(r === null ? '—' : (r * 100).toFixed(1) + '% (' + (q2 === null ? '—' : q2.toFixed(3)) + ')', 17);
       });
       L('    ' + pad(row.zCenter.toFixed(1), 6) + '  ' + cells.join('') + '   ' +
         (row.crossesSource ? '← 창이 소스를 가로지름' : ''));
@@ -265,7 +289,7 @@ function runG3() {
     L(qualityLine(cols));
     L('  k_z 창 [' + win.zStart.toFixed(4) + ', ' + win.zEnd.toFixed(1) + ']  길이 ' +
       (win.zEnd - win.zStart).toFixed(6) + (kmin ? '   (κ_min = ' + kmin.toFixed(6) + ')' : '   (차단 모드 없음)'));
-    L('    모드  결합     이론 k_z     λ_g       주기수   변형   ' + cols.map(function (q) { return padR(q.label, 20); }).join(''));
+    L('    모드  결합     이론 k_z     λ_g       주기수   변형   ' + cols.map(function (q) { return padR(q.label, 24); }).join(''));
     for (var n = 1; n <= 3; n++) {
       var kz = M.theoryKz(n, c.a, k);
       if (kz === null) {
@@ -278,7 +302,9 @@ function runG3() {
       [false, true].forEach(function (tr) {
         var cells = cols.map(function (q) {
           var r = M.measureKz(q.scene.tot, c.a, n, kz, kmin, { truncate: tr });
-          return padR(r.value === null ? r.reason : (r.value / kz * 100).toFixed(1) + '%', 20);
+          // 임계값 사전 규칙: resolvable=true인 모든 전파 모드 (표준 창)
+          if (!tr && r.value !== null) chk('G3 ' + c.name + ' m' + n + ' ' + q.label, Math.abs(r.value / kz - 1), TH.G3);
+          return cell(r, kz);
         });
         L('     ' + (tr ? ' ' : n) + '   ' + (tr ? '      ' : pad(M.coupling(n, c.y0OverA).toFixed(3), 6)) + '   ' +
           (tr ? '           ' : pad(kz.toFixed(6), 9) + '  ') + (tr ? '        ' : pad(lamG.toFixed(3), 8)) +
@@ -294,6 +320,8 @@ function runG3AW() {
   L('  core.js 사용 조건은 a_w ≪ d. dAuto = 0.055λ이므로 a_w/d = 14.5/λ 이고,');
   L('  프리셋 ③④가 이미 문턱(0.25)을 넘는다 — 그 둘이 곧 G3(b)(c) 조건이다.');
   L('  모드합·영상법은 a_w와 무관하므로 같은 값이 나오는 것이 정상이다 (대조군).');
+  L('  ⚠ 이 절은 유효 벽 정합을 끈 상태(awAuto=false)에서만 의미가 있다.');
+  L('    정합이 켜지면 a_w = d/2π 로 d에 묶여 독립 변수가 아니므로 스캔 자체가 성립하지 않는다.');
 
   ['P3', 'P4'].forEach(function (key) {
     var c = COND[key];
@@ -329,17 +357,18 @@ function runG3AW() {
 /* ================================================================= G4 (실측만) */
 function runG4() {
   var c = COND.P1;
-  hr('[G4] 차단 영역 전체장 일치도 — 임계값 없음, 실측값만 보고');
-  L('  비교 영역(고정): 벽 사이 ∧ z ∈ [' + GEO.G4_ZRANGE[0] + ', ' + GEO.G4_ZRANGE[1] + ']');
-  L('  이 영역은 κ 창 결정(A/B/C)과 무관하며 단계 6에서 바뀌지 않는다. 단계 5′ 재실행 때도 같은 영역.');
+  hr('[G4] 차단 영역 전체장 일치도');
+  L('  게이트 : 모드합 ↔ 도선관,  모드합 ↔ 영상법   (각 방법을 정확해와 비교)');
+  L('  보고   : 영상법 ↔ 도선관 ★  — 두 오차의 합이라 게이트로 부적절 (삼각부등식으로 위 둘의 합 이하)');
+  L('  이 프로젝트의 논리: 두 근사를 서로 비교하는 게 아니라, 각각이 공통의 참값으로 수렴함을 보인다.');
   L('  지표: RMS(차) / max|E_tot|   (영역 내)');
   L();
   var cols = columns(c);
   L(qualityLine(cols));
   var t = M.jBotTop(c.a);
-  var i0 = Math.round(GEO.zToPix(GEO.G4_ZRANGE[0])), i1 = Math.round(GEO.zToPix(GEO.G4_ZRANGE[1]));
 
-  function cmp(A, B) {
+  function cmp(A, B, zr) {
+    var i0 = Math.round(GEO.zToPix(zr[0])), i1 = Math.round(GEO.zToPix(zr[1]));
     var sum = 0, cnt = 0, mx = 0;
     for (var i = i0; i <= i1; i++) for (var j = t.jBot + 1; j < t.jTop; j++) {
       var idx = i * A.Ny + j;
@@ -351,15 +380,20 @@ function runG4() {
     }
     return Math.sqrt(sum / cnt) / Math.sqrt(mx);
   }
-  L('  픽셀 x [' + i0 + ', ' + i1 + '],  y (' + t.jBot + ', ' + t.jTop + ') 배타');
+  var REGIONS = [GEO.G4_ZRANGE, [56.0, 150.0]];
   L();
-  L('    비교쌍                   상대 L2');
-  L('  ' + '-'.repeat(44));
-  [['모드합 ↔ 영상법', 0, 1], ['모드합 ↔ 도선관', 0, 2], ['영상법 ↔ 도선관  ★', 1, 2]].forEach(function (p) {
-    L('  ' + padR(p[0], 24) + pad(cmp(cols[p[1]].scene.tot, cols[p[2]].scene.tot).toExponential(4), 12));
+  L('    비교쌍                   z[' + GEO.G4_ZRANGE.join(', ') + '] (확정)    z[56, 150] (참고)   임계');
+  L('  ' + '-'.repeat(78));
+  [['모드합 ↔ 도선관  게이트', 0, 2, TH.G4_wire],
+   ['모드합 ↔ 영상법  게이트', 0, 1, TH.G4_image],
+   ['영상법 ↔ 도선관  ★보고', 1, 2, null]].forEach(function (p) {
+    var vals = REGIONS.map(function (zr) { return cmp(cols[p[1]].scene.tot, cols[p[2]].scene.tot, zr); });
+    if (p[3] !== null) chk('G4 ' + p[0].split('  ')[0] + ' [56,106]', vals[0], p[3]);
+    L('  ' + padR(p[0], 26) + pad(vals[0].toExponential(4), 14) + '       ' +
+      pad(vals[1].toExponential(4), 14) + '   ' + (p[3] === null ? '보고만' : '≤ ' + p[3]));
   });
-  L('  ' + '-'.repeat(44));
-  L('  ★ = v1 §8의 G4 대상. 임계값은 이 실측값을 보고 사람이 확정한다.');
+  L('  ' + '-'.repeat(78));
+  L('  두 영역의 값이 크게 다르면 영역 선택이 결과를 좌우한다는 뜻이다.');
 }
 
 /* ================================================================= G5 이중 수렴 */
@@ -370,17 +404,23 @@ function runG5() {
   var k = 2 * Math.PI / c.lambda, kap = M.theoryKappa(1, c.a, k);
   L('  mode 1,  이론 κ = ' + kap.toFixed(7));
   L();
-  L('  ▸ 영상법  N ↑');
-  L('     N     plateAvg      창A       창B       창C');
-  [10, 20, 40, 80].forEach(function (N) {
-    var sc = AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, N: N });
-    var cells = M.WINDOW_IDS.map(function (w) {
-      var r = M.measureKappa(sc.tot, c.a, 1, w, 1, kap);
-      return pad(r.value === null ? r.reason : (r.value / kap * 100).toFixed(1) + '%', 10);
+  L('  ▸ 영상법  N ↑   (단순 합 / Cesàro)  — 탭 4-C가 겹쳐 그릴 두 곡선');
+  L('     N    방식      plateAvg      창A         창B         창C');
+  [40, 80, 160, 320].forEach(function (N) {
+    [false, true].forEach(function (ces) {
+      var sc = AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, N: N, cesaro: ces });
+      var cells = M.WINDOW_IDS.map(function (w) {
+        var r = M.measureKappa(sc.tot, c.a, 1, w, 1, kap);
+        return pad(r.value === null ? r.reason : (r.value / kap * 100).toFixed(1) + '%', 12);
+      });
+      L('   ' + (ces ? '     ' : pad(N, 4) + ' ') + ' ' + padR(ces ? 'Cesàro' : '단순 합', 8) +
+        pad(sc.quality.plateAvg.toFixed(6), 10) + cells.join('') +
+        (!ces && N === 40 ? '   ← v1 §13: 잘림 간섭의 골짜기' : (ces && N === GEO.N ? '   ← 기본값' : '')));
     });
-    L('   ' + pad(N, 4) + '   ' + pad(sc.quality.plateAvg.toFixed(6), 10) + cells.join('') +
-      (N === 40 ? '   ← v1 §13: 잘림 간섭의 골짜기' : ''));
   });
+  L();
+  L('  ▸ plateAvg는 두 방식 모두 단조 감소하는데 κ는 단순 합에서만 진동한다.');
+  L('    경계조건 만족도가 좋아져도 관 내부 감쇠는 좋아지지 않는다 — N=40은 우연한 골짜기가 아니다.');
   L();
   L('  ▸ 도선관  d ↓   (유효 벽 정합 OFF = a_w 0.8 고정 / ON = a_w = d/2π)');
   L('     d     정합   a_w      δ         wallT     창A       창B       창C');
@@ -400,11 +440,38 @@ function runG5() {
   });
 }
 
+/* ================================================================= TIME 성능 실측 */
+// 최악 조건은 λ=2.4cm(24셀) — dAuto=1.32, 도선 456개. 디바운스 250ms 뒤 1.5초를 넘으면 보고·중단.
+function runTIME() {
+  hr('[TIME] 재계산 실측 시간');
+  L('  영상법 N별 (a=60, λ=144):');
+  L('     N     단순 합     Cesàro');
+  [80, 160, 320].forEach(function (N) {
+    var ts = [false, true].map(function (ces) {
+      var t = Date.now();
+      AD.imageScene({ lambda: 144, a: 60, y0OverA: 0.5, N: N, cesaro: ces });
+      return Date.now() - t;
+    });
+    L('   ' + pad(N, 4) + '   ' + pad(ts[0] + 'ms', 8) + '   ' + pad(ts[1] + 'ms', 8) +
+      (N === GEO.N ? '   ← 기본값' : ''));
+  });
+  L();
+  L('  최악 조건 λ=2.4cm (24셀), d=' + AD.dAuto(24).toFixed(3) + ', 도선 ' + (2 * GEO.nWires(AD.dAuto(24))) + '개:');
+  [80, 160, 320].forEach(function (N) {
+    var t1 = Date.now(); AD.imageScene({ lambda: 24, a: 60, y0OverA: 0.5, N: N }); var mi = Date.now() - t1;
+    var t2 = Date.now(); AD.wireScene({ lambda: 24, a: 60, y0OverA: 0.5 }); var mw = Date.now() - t2;
+    var tot = mi + mw;
+    L('   N=' + pad(N, 4) + '   영상법 ' + pad(mi + 'ms', 8) + ' + 도선관 ' + pad(mw + 'ms', 8) +
+      ' = ' + pad(tot + 'ms', 8) + '   ' + (tot > 1500 ? '⛔ 1.5초 초과' : 'OK'));
+    if (N === GEO.N && tot > 1500) BREACH.push('TIME 최악조건 N=' + N + ' ' + tot + 'ms > 1500ms');
+  });
+}
+
 /* ------------------------------------------------------------------- 실행 */
 var want = process.argv.slice(2);
 var T0 = Date.now();
 [['G0', runG0], ['G1', runG1], ['G2', runG2], ['G2-WALL', runG2WALL], ['G2-PROFILE', runG2P],
- ['G3', runG3], ['G3-AW', runG3AW], ['G4', runG4], ['G5', runG5]].forEach(function (g) {
+ ['G3', runG3], ['G3-AW', runG3AW], ['G4', runG4], ['G5', runG5], ['TIME', runTIME]].forEach(function (g) {
   if (want.length && want.indexOf(g[0]) < 0) return;
   var t = Date.now();
   g[1]();
@@ -413,6 +480,21 @@ var T0 = Date.now();
 
 hr('요약');
 L('  총 소요 ' + ((Date.now() - T0) / 1000).toFixed(1) + 's');
+L('  설정: κ창 ' + GEO.KAPPA_WIN + ',  영상법 N=' + GEO.N + (GEO.CESARO ? ' Cesàro' : ' 단순 합') +
+  ',  유효 벽 정합 ' + (GEO.AW_AUTO ? 'ON (a_w=d/2π)' : 'OFF') +
+  ',  G4 영역 [' + GEO.G4_ZRANGE.join(', ') + ']');
+L();
 if (FAIL.length) { L('  판정 대상 FAIL ' + FAIL.length + '건:\n    ' + FAIL.join('\n    ')); process.exitCode = 1; }
-else L('  판정 대상(G0·G1 + 모드합 무결성) 전부 PASS');
-L('  나머지는 판정 없이 실측만 보고했다. 창(A/B/C)과 임계값 3종은 단계 6에서 확정한다.');
+else L('  G0·G1 + 모드합 무결성 — PASS');
+
+L();
+L('  [임계값 사전 규칙]  G2 ≤' + TH.G2 + ' / G3 ≤' + TH.G3 +
+  ' / G4 도선관 ≤' + TH.G4_wire + ' · 영상법 ≤' + TH.G4_image);
+if (BREACH.length) {
+  L('  ⛔ 이탈 ' + BREACH.length + '건 — 멈추고 보고한다. 임계값을 느슨하게 고치지 않는다.');
+  BREACH.forEach(function (b) { L('    ' + b); });
+  process.exitCode = 1;
+} else {
+  L('  ✅ 전 항목이 사전 규칙 범위 안 — 임계값 확정 조건 충족.');
+}
+L('  ※ 모드 2·3의 측정 불가는 FAIL이 아니다. R²는 보고만 하며 가드로 켜지 않았다.');

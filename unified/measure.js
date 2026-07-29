@@ -90,6 +90,12 @@
       return { zStart: zStart, zEnd: zStart + 50 };
     }
   };
+  // 직선성 가드 임계값. null = 가드 끔(R²는 보고만).
+  // Cesàro N=320에서 모드 3이 43.4%로 값을 내면서 가드 넷을 전부 통과했다 — 57% 틀린 값이다.
+  // κ₃=0.1509라 창 C 50셀에서 exp(−7.54)=5.3e−4까지 내려가 잘림 잔차 바닥에 잠긴 것이고,
+  // N을 올려도 바닥을 따라 기어오를 뿐이다(3.8→15.1→25.9→43.4%). 영상법의 실제 한계다.
+  var R2_MIN = null;
+
   var WINDOW_IDS = ['A', 'B', 'C'];
   var WINDOW_LABEL = { A: 'A 0.15L', B: 'B z0+2/κ', C: 'C 소스+20' };
 
@@ -113,15 +119,31 @@
     for (var z = win.zStart; z <= win.zEnd; z += 1) xs.push(z);
     return xs;
   }
+  // 최소제곱 직선맞춤 + 결정계수 R².
+  // R²는 "깨끗한 지수인가"를 정답을 모른 채 판정할 수 있는 유일한 기준이다.
+  // 바닥에 잠긴 잡음은 기울기가 그럴듯해도 R²가 낮다.
+  function fitLine(xs, ys) {
+    var sx = 0, sy = 0, sxx = 0, sxy = 0, n = xs.length;
+    if (n < 2) return null;
+    for (var i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+    var den = n * sxx - sx * sx;
+    if (Math.abs(den) < 1e-300) return null;
+    var b = (n * sxy - sx * sy) / den, aC = (sy - b * sx) / n;
+    var ybar = sy / n, ssTot = 0, ssRes = 0;
+    for (var j = 0; j < n; j++) {
+      var d1 = ys[j] - ybar, d2 = ys[j] - (aC + b * xs[j]);
+      ssTot += d1 * d1; ssRes += d2 * d2;
+    }
+    return { slope: b, r2: ssTot > 0 ? 1 - ssRes / ssTot : 1, n: n };
+  }
+
   function fitLogSlope(xs, amps) {
-    var sx = 0, sy = 0, sxx = 0, sxy = 0, n = 0;
+    var X = [], Y = [];
     for (var i = 0; i < xs.length; i++) {
       if (amps[i] < 1e-14) continue;
-      var lv = Math.log(amps[i]);
-      sx += xs[i]; sy += lv; sxx += xs[i] * xs[i]; sxy += xs[i] * lv; n++;
+      X.push(xs[i]); Y.push(Math.log(amps[i]));
     }
-    if (n < 2) return null;
-    return (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    return fitLine(X, Y);
   }
 
   /* ---------- 7-4. κ 측정 ----------
@@ -145,10 +167,13 @@
     if (!(endAmp > 0)) return { value: null, reason: '수치 바닥', win: win };
     if (startAmp > 0 && startAmp / endAmp < 1.5) return { value: null, reason: '진폭비 부족 (< 1.5)', win: win };
 
-    var s = fitLogSlope(xs, amps);
-    if (s === null) return { value: null, reason: '수치 바닥', win: win };
-    if (s >= 0) return { value: null, reason: '기울기 비물리 (≥ 0)', win: win };
-    return { value: -s, reason: null, win: win };
+    var f = fitLogSlope(xs, amps);
+    if (f === null) return { value: null, reason: '수치 바닥', win: win };
+    if (f.slope >= 0) return { value: null, reason: '기울기 비물리 (≥ 0)', win: win, r2: f.r2 };
+    // 직선성 가드 — 임계값 확정 전까지 켜지 않는다. R²는 항상 함께 보고한다.
+    if (R2_MIN !== null && f.r2 < R2_MIN)
+      return { value: null, reason: '직선성 부족 (R²=' + f.r2.toFixed(3) + ')', win: win, r2: f.r2 };
+    return { value: -f.slope, reason: null, win: win, r2: f.r2 };
   }
 
   /* ---------- 7-5. k_z 측정 ----------
@@ -186,9 +211,9 @@
       while (phis[i] - phis[i - 1] > Math.PI) phis[i] -= 2 * Math.PI;
       while (phis[i] - phis[i - 1] < -Math.PI) phis[i] += 2 * Math.PI;
     }
-    var sx = 0, sy = 0, sxx = 0, sxy = 0, m = xs.length;
-    for (var j = 0; j < m; j++) { sx += xs[j]; sy += phis[j]; sxx += xs[j] * xs[j]; sxy += xs[j] * phis[j]; }
-    return { value: Math.abs((m * sxy - sx * sy) / (m * sxx - sx * sx)), reason: null,
+    var f = fitLine(xs, phis);
+    if (f === null) return { value: null, reason: '창 무효', win: win };
+    return { value: Math.abs(f.slope), reason: null, r2: f.r2,
              win: win, periods: (win.zEnd - win.zStart) / (lamG / 2) };
   }
 
@@ -206,10 +231,11 @@
         if (ip < 0 || ip >= amp.length) continue;
         xs.push(z); amps.push(amp[ip]);
       }
-      var s = fitLogSlope(xs, amps);
+      var f = fitLogSlope(xs, amps);
       out.push({ zStart: z0, zEnd: z0 + len, zCenter: z0 + len / 2,
-                 kappa: (s === null ? null : -s),
-                 ratio: (s === null ? null : -s / kThy),
+                 kappa: (f === null ? null : -f.slope),
+                 ratio: (f === null ? null : -f.slope / kThy),
+                 r2: (f === null ? null : f.r2),
                  crossesSource: z0 < GEO.srcZ() });
     }
     return { len: len, rows: out };

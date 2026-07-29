@@ -43,7 +43,8 @@
   // 원본 main.js:recomputeAll 을 그대로 옮기되, 전역 state 대신 p를 쓰고
   // x0에 GEO.srcPix()(=146)를 넣는다. 이것이 영상법에 가하는 유일한 좌표 변경. (v1 §4-1)
   function imageScene(p) {
-    var a = p.a, N = p.N || 0;
+    var a = p.a, N = (p.N === undefined) ? GEO.N : p.N;
+    var cesaro = (p.cesaro === undefined) ? GEO.CESARO : !!p.cesaro;
     var ys = GEO.srcYPix(a, p.y0OverA);
     var x0 = GEO.srcPix();
     var k = 2 * Math.PI / p.lambda;
@@ -68,7 +69,7 @@
       // generateImages는 r마다 2개씩 순서대로 넣으므로 r = floor(i/2)+1.
       // sign이 곱셈 인자이므로 여기에 가중치를 실으면 원본을 고치지 않아도 된다.
       var src = imgs, wOf = null;
-      if (p.cesaro && N > 0) {
+      if (cesaro && N > 0) {
         wOf = function (i) { return (N - (Math.floor(i / 2) + 1) + 1) / N; };
         src = imgs.map(function (g, i) {
           return { x: g.x, y: g.y, sign: g.sign * wOf(i) };
@@ -90,7 +91,7 @@
       walls: { yTopPix: GEO.wallTopPix(a), yBotPix: GEO.wallBotPix(a),
                xFromPix: 0, xToPix: GEO.Nx },
       markers: markers,
-      quality: { N: N, modeInfinity: !!p.modeInfinity, cesaro: !!p.cesaro,
+      quality: { N: N, modeInfinity: !!p.modeInfinity, cesaro: cesaro && !p.modeInfinity,
                  plateAvg: plateWallAvg(tot, a) }
     };
   }
