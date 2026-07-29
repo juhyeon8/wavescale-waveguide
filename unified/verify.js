@@ -49,8 +49,12 @@ function columns(c) {
 function qualityLine(cols) {
   var q = {};
   cols.forEach(function (c) { q[c.key] = c.scene.quality; });
-  return '  모드합: (해석해)   영상법: N=' + q.image.N + ', plateAvg=' + q.image.plateAvg.toFixed(6) +
-         '   도선관: d=' + q.wire.d.toFixed(3) + ', wallT=' + q.wire.wallT.toFixed(4) + ', aw=' + q.wire.aw;
+  return '  모드합: (해석해)   영상법: N=' + q.image.N + ', plateAvg=' + q.image.plateAvg.toFixed(6) + '\n' +
+         '  도선관: d=' + q.wire.d.toFixed(3) + ', a_w=' + q.wire.aw.toFixed(4) +
+         (q.wire.awAuto ? '(자동 d/2π)' : '(수동)') +
+         ', a_w/d=' + q.wire.awOverD.toFixed(4) +
+         ', δ=' + (q.wire.delta >= 0 ? '+' : '') + q.wire.delta.toFixed(4) +
+         ', a_eff=' + q.wire.aEff.toFixed(3) + ', wallT=' + q.wire.wallT.toFixed(4);
 }
 
 /* ================================================================= G0 좌표 정합 */
@@ -176,6 +180,38 @@ function runG2() {
   L('    그것은 측정의 한계가 아니라 그 방법 자체의 한계입니다.');
 }
 
+/* ================================================== G2-WALL 유효 벽 정합 ON/OFF */
+// 정책(a_w = d/2π)이 실제로 δ를 없애는지 확인한다.
+// δ = (d/2π)·ln(d/(2π·a_w)),  a_eff = a + 2δ.  자유 매개변수 없음.
+function runG2WALL() {
+  hr('[G2-WALL] 유효 벽 정합 ON/OFF — 정책이 δ를 실제로 없애는가');
+  L('  δ = (d/2π)·ln( d/(2π·a_w) ) 벽 하나당,  a_eff = a + 2δ');
+  L('  OFF = a_w 0.8 고정(종전),  ON = a_w = d/2π (δ≡0)');
+  L('  κ 예측은 a_eff로 계산한 이론값의 비 — 측정값이 이 예측과 맞으면 δ 설명이 옳다.');
+  ['P1'].forEach(function (key) {
+    var c = COND[key], k = 2 * Math.PI / c.lambda, d = AD.dAuto(c.lambda);
+    var kap = M.theoryKappa(1, c.a, k);
+    L();
+    L('── ' + c.name + '  a=' + c.a + ', λ=' + c.lambda + ', d=' + d.toFixed(3) + ',  이론 κ₁=' + kap.toFixed(7) + ' ──');
+    L('    정합    a_w      a_w/d      δ         a_eff      κ 예측    κ 실측(창C)   wallT     경고');
+    [false, true].forEach(function (auto) {
+      var sc = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d, awAuto: auto, aw: GEO.aw });
+      var q = sc.quality;
+      var kapEff = M.theoryKappa(1, q.aEff, k);
+      var r = M.measureKappa(sc.tot, c.a, 1, 'C', d, kap);
+      var warn = q.awOverD >= 0.5 ? '⛔ 겹침' : (q.awOverD > 0.25 ? '⚠ 근사 이탈' : '');
+      L('    ' + padR(auto ? 'ON ' : 'OFF', 6) + pad(q.aw.toFixed(4), 7) + '  ' + pad(q.awOverD.toFixed(4), 7) +
+        '  ' + pad((q.delta >= 0 ? '+' : '') + q.delta.toFixed(4), 8) + '  ' + pad(q.aEff.toFixed(3), 8) +
+        '  ' + pad((kapEff / kap * 100).toFixed(1) + '%', 8) +
+        '  ' + pad(r.value === null ? r.reason : (r.value / kap * 100).toFixed(1) + '%', 10) +
+        '  ' + pad(q.wallT.toFixed(4), 8) + '   ' + warn);
+    });
+  });
+  L();
+  L('  ▸ 참고: d = 0.055λ 이므로 자동일 때 k·a_w = 2π·a_w/λ = 0.055 로 λ에 무관한 상수,');
+  L('    a_w/d = 1/2π = 0.1592 로 고정. 얇은 도선 근사 두 조건이 슬라이더 전 범위에서 같아진다.');
+}
+
 /* ========================================================== G2-PROFILE 국소 기울기 */
 function runG2P() {
   var c = COND.P1;
@@ -275,7 +311,7 @@ function runG3AW() {
       L('  mode ' + n + '  (이론 k_z = ' + kz.toFixed(6) + ')');
       L('    a_w    a_w/d   틈       모드합    영상법    도선관    wallT     경고');
       [0.8, 0.5, 0.3].forEach(function (aw) {
-        var sw = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d, aw: aw });
+        var sw = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d, aw: aw, awAuto: false });
         var cells = base.concat([{ key: 'wire', scene: sw }]).map(function (q) {
           var r = M.measureKz(q.scene.tot, c.a, n, kz, kmin);
           return pad(r.value === null ? r.reason : (r.value / kz * 100).toFixed(1) + '%', 9);
@@ -346,24 +382,28 @@ function runG5() {
       (N === 40 ? '   ← v1 §13: 잘림 간섭의 골짜기' : ''));
   });
   L();
-  L('  ▸ 도선관  d ↓');
-  L('     d      wallT       a_w/d    창A       창B       창C');
+  L('  ▸ 도선관  d ↓   (유효 벽 정합 OFF = a_w 0.8 고정 / ON = a_w = d/2π)');
+  L('     d     정합   a_w      δ         wallT     창A       창B       창C');
   [8, 5, 3, AD.dAuto(c.lambda)].forEach(function (d) {
-    var sc = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d });
-    var cells = M.WINDOW_IDS.map(function (w) {
-      var r = M.measureKappa(sc.tot, c.a, 1, w, d, kap);
-      return pad(r.value === null ? r.reason : (r.value / kap * 100).toFixed(1) + '%', 10);
+    [false, true].forEach(function (auto) {
+      var sc = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d, awAuto: auto, aw: GEO.aw });
+      var q = sc.quality;
+      var cells = M.WINDOW_IDS.map(function (w) {
+        var r = M.measureKappa(sc.tot, c.a, 1, w, d, kap);
+        return pad(r.value === null ? r.reason : (r.value / kap * 100).toFixed(1) + '%', 10);
+      });
+      L('   ' + (auto ? '      ' : pad(d.toFixed(3), 6)) + '  ' + padR(auto ? 'ON ' : 'OFF', 5) +
+        pad(q.aw.toFixed(4), 7) + '  ' + pad((q.delta >= 0 ? '+' : '') + q.delta.toFixed(4), 8) +
+        '  ' + pad(q.wallT.toFixed(4), 8) + cells.join('') +
+        (auto && Math.abs(d - AD.dAuto(c.lambda)) < 1e-9 ? '   ← dAuto' : ''));
     });
-    L('   ' + pad(d.toFixed(3), 6) + '  ' + pad(sc.quality.wallT.toFixed(4), 8) + '  ' +
-      pad(sc.quality.awOverD.toFixed(3), 7) + cells.join('') +
-      (Math.abs(d - AD.dAuto(c.lambda)) < 1e-9 ? '   ← dAuto' : ''));
   });
 }
 
 /* ------------------------------------------------------------------- 실행 */
 var want = process.argv.slice(2);
 var T0 = Date.now();
-[['G0', runG0], ['G1', runG1], ['G2', runG2], ['G2-PROFILE', runG2P],
+[['G0', runG0], ['G1', runG1], ['G2', runG2], ['G2-WALL', runG2WALL], ['G2-PROFILE', runG2P],
  ['G3', runG3], ['G3-AW', runG3AW], ['G4', runG4], ['G5', runG5]].forEach(function (g) {
   if (want.length && want.indexOf(g[0]) < 0) return;
   var t = Date.now();

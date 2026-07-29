@@ -47,6 +47,14 @@
   }
 
   /* ---------- 7-2. 이론값 (Griffiths) ---------- */
+  // 도선 격자의 유효 반사면 변위 (벽 하나당). 자유 매개변수 없음.
+  //   δ = (d/2π)·ln( d / (2π·a_w) ),   a_eff = a + 2δ
+  // d > 2π·a_w → δ>0 → 관이 넓어짐 → κ 감소.  d = 2π·a_w 에서 정확히 0.
+  // G5 실측 4/4가 0.05%p 이내로 맞았다 (설계 §11-6).
+  function wallShift(d, aw) { return (d / (2 * Math.PI)) * Math.log(d / (2 * Math.PI * aw)); }
+  function aEff(a, d, aw) { return a + 2 * wallShift(d, aw); }
+  function awMatched(d) { return d / (2 * Math.PI); }   // δ = 0 이 되는 a_w
+
   function kc(n, a) { return n * Math.PI / a; }
   function theoryKz(n, a, k) { var c = kc(n, a); return (k > c) ? Math.sqrt(k * k - c * c) : null; }
   function theoryKappa(n, a, k) { var c = kc(n, a); return (k < c) ? Math.sqrt(c * c - k * k) : null; }
@@ -210,6 +218,7 @@
   return {
     jBotTop: jBotTop, modeCoefMag: modeCoefMag, modeCoefComplexAt: modeCoefComplexAt,
     kc: kc, theoryKz: theoryKz, theoryKappa: theoryKappa, coupling: coupling,
+    wallShift: wallShift, aEff: aEff, awMatched: awMatched,
     kappaMinOfCutoff: kappaMinOfCutoff,
     KAPPA_WINDOWS: KAPPA_WINDOWS, WINDOW_IDS: WINDOW_IDS, WINDOW_LABEL: WINDOW_LABEL,
     kappaWindow: kappaWindow, kzWindow: kzWindow,

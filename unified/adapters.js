@@ -7,14 +7,14 @@
       require('../image-source/physics.js'), require('../image-source/field.js'));
     var WIRE = Object.assign({},
       require('../line-wire/hankel.js'), require('../line-wire/field.js'));
-    module.exports = factory(require('./geometry.js'),
+    module.exports = factory(require('./geometry.js'), require('./measure.js'),
       IMG, WIRE, require('../line-wire/core.js'),
       require('../line-wire/higher-order/modes.js'));
   } else {
     // 브라우저: index.html의 <script> 순서가 만든 전역을 그대로 받는다
-    global.Adapters = factory(global.GEO, global.IMG, global.WIRE, global.WireWG, global.WGM);
+    global.Adapters = factory(global.GEO, global.Measure, global.IMG, global.WIRE, global.WireWG, global.WGM);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (GEO, IMG, WIRE, WireWG, WGM) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (GEO, M, IMG, WIRE, WireWG, WGM) {
   'use strict';
 
   function mk() { return IMG.makeField(GEO.Nx, GEO.Ny); }
@@ -62,10 +62,22 @@
       markers = fadedImageMarkers(a, ys, x0);
     } else {
       var imgs = IMG.generateImages('A', N, x0, GEO.y0pix, a, ys);
-      scat = IMG.computeField(mk(), imgs, table);
+      // Cesàro 평균 — 차단 영역의 영상 급수는 거친 교대급수라 유한 N 합이 크게 흔들린다.
+      // 부분합의 산술평균 C_N = (1/N)Σ S_r 는 항별 삼각 가중치로 등가 계산된다:
+      //   C_N = Σ_j t_j · (N − j + 1)/N          (j = 반사 횟수 r)
+      // generateImages는 r마다 2개씩 순서대로 넣으므로 r = floor(i/2)+1.
+      // sign이 곱셈 인자이므로 여기에 가중치를 실으면 원본을 고치지 않아도 된다.
+      var src = imgs, wOf = null;
+      if (p.cesaro && N > 0) {
+        wOf = function (i) { return (N - (Math.floor(i / 2) + 1) + 1) / N; };
+        src = imgs.map(function (g, i) {
+          return { x: g.x, y: g.y, sign: g.sign * wOf(i) };
+        });
+      }
+      scat = IMG.computeField(mk(), src, table);
       tot = IMG.addComplex(mk(), inc, scat);
-      markers = imgs.map(function (g) {
-        return { xPix: g.x, yPix: g.y, kind: 'image-source', weight: 1 };
+      markers = imgs.map(function (g, i) {
+        return { xPix: g.x, yPix: g.y, kind: 'image-source', weight: wOf ? wOf(i) : 1 };
       });
     }
     markers.push({ xPix: x0, yPix: ys, kind: 'source', weight: 1 });
@@ -78,7 +90,8 @@
       walls: { yTopPix: GEO.wallTopPix(a), yBotPix: GEO.wallBotPix(a),
                xFromPix: 0, xToPix: GEO.Nx },
       markers: markers,
-      quality: { N: N, modeInfinity: !!p.modeInfinity, plateAvg: plateWallAvg(tot, a) }
+      quality: { N: N, modeInfinity: !!p.modeInfinity, cesaro: !!p.cesaro,
+                 plateAvg: plateWallAvg(tot, a) }
     };
   }
 
@@ -98,7 +111,13 @@
   // p = { lambda, a, y0OverA, d, aw }
   function wireScene(p) {
     var a = p.a, d = (p.d === undefined || p.d === null) ? dAuto(p.lambda) : p.d;
-    var aw = (p.aw === undefined) ? GEO.aw : p.aw;
+    // 유효 벽 정합 — a_w = d/2π 이면 δ = 0 이다. a_w는 물리 상수가 아니라 이산화
+    // 설계 변수이고, 0.8도 임의의 선택이었다. 자유 매개변수를 더하는 게 아니라
+    // 이미 있던 임의성을 물리적 기준으로 제거하는 것이다. (설계 §11-6)
+    // d = 0.055λ 이므로 k·a_w = 2π·a_w/λ = 0.055 로 λ에 무관한 상수가 되고,
+    // a_w/d = 1/2π = 0.1592 로 고정되어 얇은 도선 근사 두 조건이 전 범위에서 같아진다.
+    var awAuto = (p.awAuto === undefined) ? GEO.AW_AUTO : !!p.awAuto;
+    var aw = awAuto ? M.awMatched(d) : ((p.aw === undefined) ? GEO.aw : p.aw);
 
     var q = {
       lambda: p.lambda, a: a, L: GEO.L, d: d,
@@ -124,9 +143,10 @@
       walls: { yTopPix: GEO.wallTopPix(a), yBotPix: GEO.wallBotPix(a),
                xFromPix: GEO.xLeft, xToPix: GEO.wallXToPix(d) },
       markers: markers,
-      quality: { d: d, aw: aw, awOverD: aw / d,
+      quality: { d: d, aw: aw, awAuto: awAuto, awOverD: aw / d,
                  nW: GEO.nWires(d), lastWireZ: GEO.lastWireZ(d),
                  gap: d - 2 * aw, dOverLambda: d / p.lambda,
+                 delta: M.wallShift(d, aw), aEff: M.aEff(a, d, aw),
                  wallT: s.wallT }
     };
   }
