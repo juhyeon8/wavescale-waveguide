@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>도파관 = 입사파 + 산란파 (영상법)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>도파관 = 입사파 + 산란파 (영상법)</h1>
+  <p class="subtitle">평행 도체판 사이 도선의 파동을, 입사파(원본)와 산란파(영상들의 합)의 중첩으로 봅니다.
+     영상 개수를 늘리면 산란파가 쌓이며 도체 경계조건을 점점 만족합니다.
+     격자 1칸 = 1 mm. 모드 분해는 n=1–3만 표시(n≥4 미표시).</p>
+</header>
+
+<div class="tabs">
+  <button id="tabA" class="tab active">무한 평행판</button>
+</div>
+
+<div class="app">
+  <aside class="controls">
+    <section class="control-group">
+      <label class="slider-label">파장 λ <span class="readout" id="lambdaVal"></span></label>
+      <input type="range" id="lambda" min="24" max="250" step="1" value="160">
+
+      <label class="slider-label">도파관 간격 a <span class="readout" id="aVal"></span></label>
+      <input type="range" id="aGap" min="48" max="160" step="2" value="64">
+
+      <label class="slider-label">소스 높이 y₀ <span class="readout" id="ySrcVal"></span></label>
+      <input type="range" id="ySrc" min="0.02" max="0.98" step="0.001" value="0.5">
+      <button id="centerBtn" class="center-btn">벽 사이 중앙으로</button>
+
+      <label class="slider-label">영상 쌍 개수 N <span class="readout" id="nVal"></span></label>
+      <input type="range" id="nImg" min="0" max="80" step="1" value="12">
+      <label class="mode-inf-row">
+        <input type="checkbox" id="modeInf">
+        <span>N=∞ &nbsp;정확한 도파관 장 (모드 합)</span>
+      </label>
+
+      <p class="preset-title">프리셋</p>
+      <div class="presets">
+        <button class="preset" data-preset="0">① 완전차단<br>2.4a</button>
+        <button class="preset" data-preset="1">② 단일모드<br>1.5a</button>
+        <button class="preset" data-preset="2">③ 2모드<br>0.8a · y₀=a/4</button>
+        <button class="preset" data-preset="3">④ 3모드<br>0.55a · y₀=a/6</button>
+      </div>
+
+      <label class="slider-label">속도 <span class="readout" id="speedVal">0.15 rad/f</span></label>
+      <input type="range" id="speed" min="0.05" max="0.50" step="0.05" value="0.15">
+      <button id="pauseBtn">⏸ 일시정지</button>
+
+      <p class="note"></p>
+    </section>
+
+    <section class="control-group">
+      <div class="info" id="cutoffBadge"></div>
+      <div class="info" id="freqInfo"></div>
+      <div id="modeDiag"></div>
+      <div class="info" id="plateInfo"></div>
+    </section>
+  </aside>
+
+  <main class="panels">
+    <section class="panel"><h3>&#9312; 입사파 (원본 도선)</h3><div class="cv-wrap"><canvas id="cvInc"></canvas></div></section>
+    <section class="panel"><h3>&#9314; 전체장 (&#9312; + &#9313;)</h3><div class="cv-wrap"><canvas id="cvTot"></canvas></div></section>
+    <section class="panel"><h3>&#9313; 산란파 — 경계조건(E=0)을 만족하는 영상들의 합</h3><div class="cv-wrap"><canvas id="cvScat"></canvas></div></section>
+    <section class="panel">
+      <h3>&#9315; 모드 분해 그래프 &mdash; n=1–3만 표시 (n&ge;4 미표시)</h3>
+      <p class="legend">
+        <span class="m1"><i></i>mode1</span>
+        <span class="m2"><i></i>mode2</span>
+        <span class="m3"><i></i>mode3</span>
+        <span><i class="solid"></i>실측(영상법)</span>
+        <span><i class="dash"></i>이론</span>
+      </p>
+      <div class="cv-wrap"><canvas id="cvGraph"></canvas></div>
+      <p class="note" style="margin-top:4px;">전파 모드는 진행하며 &asymp;일정, 차단 모드는 exp(&minus;&kappa;z)로 감쇠합니다. 가로축은 위 &#9314; 전체장과 같은 위치입니다.</p>
+      <p class="note mode-inf-caption" id="modeInfCaption">유한 N은 영상들의 근사합, N=∞는 정확한 도파관 모드 합입니다. 둘은 같은 극한으로 수렴합니다 — 영상 간섭과 모드 분해가 같은 물리임을 보여줍니다. ③ 전체장의 회색 영역은 계산 영역 밖입니다 — 모드 합은 도파관 내부 전용이며, 외부의 0은 영상 상쇄가 아닙니다.</p>
+    </section>
+  </main>
+</div>
+
+<script src="hankel.js"></script>
+<script src="images.js"></script>
+<script src="physics.js"></script>
+<script src="field.js"></script>
+<script src="render.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

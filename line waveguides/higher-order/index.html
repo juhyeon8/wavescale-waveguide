@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도선 관에 의한 입사파-산란파 중첩 모형</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="page-head">
+<h1>도선 관에 의한 입사파-산란파 중첩 모형</h1>
+<p class="sub">벽=두 줄 도선, 각 도선 표면 경계조건으로 산란파 결정(MoM). 내부 장 = 입사파+산란파.
+모드 분해는 n=1–3만 표시(n≥4 미표시).</p>
+<p class="scale-note">격자 1칸 = 1 mm. 도파관 폭 a와 파장 λ는 슬라이더로 조절합니다(기본 a = 6 cm, λ = 9 cm).
+차단 파장 λ_c = 2a (기본 12 cm ≈ 전자레인지 2.5 GHz)</p>
+</div>
+
+<div class="app-main">
+
+  <aside class="sidebar">
+    <div id="controls">
+      <div class="row"><label>도파관 폭 a</label>
+        <input id="aWidth" type="range" min="2" max="16" step="0.1" value="6">
+        <span id="aVal"></span></div>
+      <div class="row"><label>파장 λ</label>
+        <input id="lambda" type="range" min="2" max="15" step="0.1" value="9">
+        <span id="lambdaVal"></span></div>
+      <div class="row"><label>소스 y₀ / a</label>
+        <input id="y0" type="range" min="0.05" max="0.95" step="0.01" value="0.5">
+        <span id="y0Val"></span><button id="centerBtn" title="소스 도선을 두 벽의 정중앙(y₀=a/2)에 배치합니다">벽 사이 중앙으로</button></div>
+      <div class="row"><label>도선 간격 d</label>
+        <input id="dWire" type="range" min="2" max="20" step="1" value="5" disabled>
+        <span id="dVal"></span>
+        <label style="min-width:auto"><input id="dAuto" type="checkbox" checked> 자동(d=0.055λ)</label></div>
+      <div class="row"><label>프리셋</label>
+        <div class="preset-grid">
+          <button data-preset="1">① 완전차단 2.4a</button>
+          <button data-preset="2">② 단일모드 1.5a</button>
+          <button data-preset="3">③ 2모드 0.8a·y₀=a/4</button>
+          <button data-preset="4">④ 3모드 0.55a·y₀=a/6</button>
+        </div></div>
+      <div class="row">
+        <button id="pauseBtn">⏸ 일시정지</button>
+        <label style="min-width:auto">속도</label>
+        <input id="speed" type="range" min="0" max="0.4" step="0.01" value="0.15"></div>
+    </div>
+    <div id="readouts"></div>
+  </aside>
+
+  <div class="grid2x2">
+    <section class="panel"><h3>입사파 (소스 도선)</h3>
+      <div class="cvwrap"><canvas id="cvInc"></canvas></div></section>
+    <section class="panel"><h3>전체장 = 입사 + 산란</h3>
+      <div class="cvwrap"><canvas id="cvTot"></canvas></div></section>
+    <section class="panel"><h3>산란파 (벽 도선)</h3>
+      <div class="cvwrap"><canvas id="cvScat"></canvas></div></section>
+    <section class="panel"><h3>모드 분해 그래프</h3>
+      <div class="cvwrap"><canvas id="cvGraph" width="620" height="240"></canvas></div></section>
+  </div>
+
+</div>
+
+<script src="../core.js"></script>
+<script src="../hankel.js"></script>
+<script src="../field.js"></script>
+<script src="render-ho.js"></script>
+<script src="modes.js"></script>
+<script src="graph.js"></script>
+<script src="script.js"></script>
+</body></html>
