@@ -1,16 +1,60 @@
 body {
-  margin: 0; padding: 24px 28px;
+  margin: 0; padding: 20px 24px;
   background: #12151f; color: #e8ecf4;
   font-family: "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
 }
 h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
-.sub { margin: 0 0 18px; color: #8b93a7; font-size: 13px; }
+h2 { font-size: 14px; margin: 18px 0 6px; color: #8b93a7; }
+.sub { margin: 0 0 16px; color: #8b93a7; font-size: 13px; }
+.wrap { max-width: 1180px; }
 
-pre {
-  background: #1a1e2b; border: 1px solid #2b3145; border-radius: 6px;
-  padding: 14px 16px; font-size: 13px; line-height: 1.6;
-  font-family: Consolas, "D2Coding", monospace;
-  white-space: pre-wrap; overflow-x: auto;
+.badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; }
+.badge.cutoff { background: #2a3550; color: #9fc4ff; }
+.badge.prop   { background: #2f3a2c; color: #a8d99a; }
+
+/* ---- 컨트롤 3분할 ---- */
+.controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+fieldset { border: 1px solid #2b3145; border-radius: 8px; padding: 10px 12px 12px; margin: 0; }
+legend { font-size: 12px; color: #cfd6e6; padding: 0 6px; }
+legend em { color: #6b748f; font-style: normal; font-size: 11px; }
+label { display: block; font-size: 12px; margin: 7px 0; color: #b9c1d4; }
+label input[type=range] { width: 100%; display: block; margin: 3px 0 1px; }
+label b { font-weight: 500; color: #e8ecf4; font-size: 11px; }
+label.chk { display: flex; align-items: center; gap: 6px; }
+label.chk input { width: auto; margin: 0; }
+label.chk em { color: #6b748f; font-style: normal; font-size: 11px; }
+button { background: #232a3d; color: #e8ecf4; border: 1px solid #333c56;
+  border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+button:hover { background: #2c3550; }
+.presets { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.preset { text-align: left; font-size: 11px; }
+.preset.active { background: #33406b; border-color: #4a5b93; }
+.readout { font-size: 11px; color: #8b93a7; margin-top: 5px; font-family: Consolas, monospace; }
+.caption { font-size: 11px; color: #6b748f; margin-top: 8px; }
+.warn { font-size: 11px; margin-top: 5px; padding: 4px 7px; border-radius: 4px;
+  background: #3a2a2a; color: #ffb3b3; }
+
+/* ---- 3×2 격자 ---- */
+.grid { display: grid; grid-template-columns: 68px 1fr 1fr; gap: 10px; align-items: start; }
+.hcell { font-size: 12px; color: #cfd6e6; padding-bottom: 2px; }
+.hcell em { color: #6b748f; font-style: normal; font-size: 11px; display: block; }
+.rlabel { font-size: 12px; color: #cfd6e6; padding-top: 4px; }
+.rlabel .sc { display: block; font-size: 10px; color: #6b748f; font-family: Consolas, monospace; margin-top: 2px; }
+.panel canvas {
+  width: 100%; height: auto; display: block;
+  image-rendering: pixelated;              /* 백킹 520×220을 CSS로 축소 (v1 §9-5) */
+  border: 1px solid #2b3145; border-radius: 4px; background: #fff;
 }
+.mcap { font-size: 10.5px; line-height: 1.5; color: #7e879e; margin: 5px 0 0; }
+
+.diff { margin: 12px 0 0; font-size: 13px; color: #9fc4ff; }
+.timer { margin: 6px 0 0; font-size: 12px; color: #8b93a7; font-family: Consolas, monospace; }
+.busy { margin: 6px 0 0; font-size: 12px; color: #ffd54a; }
+.footcap { margin: 14px 0 0; font-size: 12px; line-height: 1.6; color: #8b93a7;
+  border-top: 1px solid #2b3145; padding-top: 10px; }
+
+pre { background: #1a1e2b; border: 1px solid #2b3145; border-radius: 6px;
+  padding: 12px 14px; font-size: 11.5px; line-height: 1.55;
+  font-family: Consolas, "D2Coding", monospace; white-space: pre-wrap; overflow-x: auto; }
 pre.pass { border-color: #2f6b45; }
 pre.fail { border-color: #7d3340; }

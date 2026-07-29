@@ -1,0 +1,275 @@
+(function (global) {
+  'use strict';
+  var GEO = global.GEO, M = global.Measure, AD = global.Adapters, R = global.Render;
+  var el = function (id) { return document.getElementById(id); };
+  var DEBUG = /[?&]debug=1/.test(location.search);
+
+  // 내부는 셀(=mm), UI는 cm. 변환은 이 파일에서만 한다. (v1 §12-5)
+  var cm = function (cell) { return cell / 10; };
+
+  var state = {
+    a: 60, lambda: 144, y0OverA: 0.500,
+    N: GEO.N, cesaro: GEO.CESARO, awAuto: GEO.AW_AUTO, aw: GEO.aw,
+    dAutoOn: true, dManual: 5,
+    gamma: 0.4, phase: 0, dPhi: 0.15, paused: false, singleScale: false
+  };
+
+  var PRESETS = [
+    { label: '① 완전차단  a=6.0 · λ=2.4a', a: 60, lambda: 144, y0OverA: 0.500 },
+    { label: '② 단일모드  a=6.0 · λ=1.5a', a: 60, lambda:  90, y0OverA: 0.500 },
+    { label: '③ 2모드     a=6.0 · λ=0.8a', a: 60, lambda:  48, y0OverA: 0.250 },
+    { label: '④ 3모드     a=6.0 · λ=0.55a', a: 60, lambda: 33, y0OverA: 0.167 }
+  ];
+
+  function currentD() { return state.dAutoOn ? AD.dAuto(state.lambda) : state.dManual; }
+
+  /* ---------------- 계산 ---------------- */
+  var scenes = null, scales = null, timing = null, rulerS = null;
+
+  function recompute() {
+    var t0 = performance.now();
+    var p = { lambda: state.lambda, a: state.a, y0OverA: state.y0OverA };
+
+    var si = AD.imageScene(Object.assign({}, p, { N: state.N, cesaro: state.cesaro }));
+    var t1 = performance.now();
+    var sw = AD.wireScene(Object.assign({}, p, {
+      d: currentD(), awAuto: state.awAuto, aw: state.aw }));
+    var t2 = performance.now();
+
+    scenes = { image: si, wire: sw };
+
+    // 측정 — 탭 4가 쓸 값. 여기서 한 번만 재고 캐시한다.
+    var k = 2 * Math.PI / state.lambda;
+    var kmin = M.kappaMinOfCutoff(state.a, k, 3);
+    var meas = [1, 2, 3].map(function (n) {
+      var kap = M.theoryKappa(n, state.a, k), kz = M.theoryKz(n, state.a, k);
+      var row = { n: n, coupling: M.coupling(n, state.y0OverA), kappa: kap, kz: kz };
+      ['image', 'wire'].forEach(function (key) {
+        var d = key === 'wire' ? currentD() : 1;
+        row[key] = (kap !== null)
+          ? M.measureKappa(scenes[key].tot, state.a, n, GEO.KAPPA_WIN, d, kap)
+          : M.measureKz(scenes[key].tot, state.a, n, kz, kmin);
+      });
+      return row;
+    });
+    var t3 = performance.now();
+
+    // 행별 스케일 — 각 행마다 하나, 좌우 두 장의 최댓값 (v1 §9-2)
+    scales = {};
+    ['inc', 'scat', 'tot'].forEach(function (row) {
+      scales[row] = R.rowScale(si[row], sw[row], state.a);
+    });
+    if (state.singleScale) {
+      var one = Math.max(scales.inc, scales.scat, scales.tot);
+      scales = { inc: one, scat: one, tot: one };
+    }
+    rulerS = R.rulerSpec(state.a, state.lambda);
+
+    timing = { image: t1 - t0, wire: t2 - t1, measure: t3 - t2, render: 0, total: 0 };
+    window.__meas = meas;
+    syncReadouts(meas);
+  }
+
+  /* ---------------- 렌더 ---------------- */
+  var CTX = {}, lastDebug = null;
+  function ctxOf(id) { return CTX[id] || (CTX[id] = el(id).getContext('2d')); }
+
+  function render() {
+    if (!state.paused) state.phase += state.dPhi;
+    if (!scenes) { requestAnimationFrame(render); return; }
+    var t0 = performance.now();
+    var dbg = { panels: {} };
+
+    ['inc', 'scat', 'tot'].forEach(function (row) {
+      ['image', 'wire'].forEach(function (side) {
+        var id = 'cv-' + row + '-' + side;
+        var opts = (row === 'tot') ? { ruler: rulerS } : {};
+        var info = R.drawPanel(ctxOf(id), scenes[side], row, scales[row], state.gamma, state.phase, opts);
+        if (DEBUG) dbg.panels[id] = info;
+      });
+      el('scale-' + row).textContent = scales[row].toExponential(3);
+    });
+
+    var t1 = performance.now();
+    timing.render = t1 - t0;
+    timing.total = timing.image + timing.wire + timing.measure + timing.render;
+    el('timer').textContent =
+      '계산 시간:  영상법 ' + timing.image.toFixed(0) + 'ms · 도선관 ' + timing.wire.toFixed(0) +
+      'ms · 측정 ' + timing.measure.toFixed(0) + 'ms · 렌더 ' + timing.render.toFixed(0) +
+      'ms · 합계 ' + timing.total.toFixed(0) + 'ms';
+
+    if (DEBUG) { lastDebug = dbg; dumpDebug(dbg); }
+    requestAnimationFrame(render);
+  }
+
+  /* ---------------- ?debug=1 텍스트 출력 ---------------- */
+  var dbgFrames = 0;
+  function dumpDebug(dbg) {
+    if (dbgFrames++ % 30 !== 0) return;              // 30프레임마다 한 번만 갱신
+    var L = [];
+    ['image', 'wire'].forEach(function (side) {
+      var s = scenes[side], w = s.walls;
+      L.push('벽 ' + side.padEnd(6) + ' yTop=' + w.yTopPix + ' yBot=' + w.yBotPix +
+             ' xFrom=' + w.xFromPix + ' xTo=' + w.xToPix.toFixed(3));
+    });
+    ['inc', 'scat', 'tot'].forEach(function (row) {
+      ['image', 'wire'].forEach(function (side) {
+        var info = dbg.panels['cv-' + row + '-' + side];
+        if (!info) return;
+        if (info.mask.boxes.length)
+          L.push('마스크 ' + row + '/' + side + '  ' + info.mask.boxes.map(function (b) {
+            return '[' + b.join(',') + ']'; }).join(' '));
+      });
+    });
+    ['image', 'wire'].forEach(function (side) {
+      var mk = scenes[side].markers, st = {};
+      mk.forEach(function (m) { st[m.kind] = (st[m.kind] || 0) + 1; });
+      L.push('마커 ' + side.padEnd(6) + ' 총 ' + mk.length + '  ' +
+             Object.keys(st).map(function (k) { return k + '=' + st[k]; }).join(' ') +
+             '  첫(' + mk[0].xPix.toFixed(1) + ',' + mk[0].yPix.toFixed(1) + ')' +
+             ' 끝(' + mk[mk.length - 1].xPix.toFixed(1) + ',' + mk[mk.length - 1].yPix.toFixed(1) + ')');
+    });
+    var r = dbg.panels['cv-tot-image'].ruler, r2 = dbg.panels['cv-tot-wire'].ruler;
+    L.push('눈금자 ' + rulerS.kind + '  image x[' + r.x0.toFixed(1) + ',' + r.x1.toFixed(1) + ']' +
+           '  wire x[' + r2.x0.toFixed(1) + ',' + r2.x1.toFixed(1) + ']' +
+           '  길이=' + rulerS.len.toFixed(3) + '셀  이론=' + rulerS.theory.toFixed(6));
+    L.push('스케일 inc=' + scales.inc.toExponential(4) + ' scat=' + scales.scat.toExponential(4) +
+           ' tot=' + scales.tot.toExponential(4));
+    L.push('계시기 영상법=' + timing.image.toFixed(1) + ' 도선관=' + timing.wire.toFixed(1) +
+           ' 측정=' + timing.measure.toFixed(1) + ' 렌더=' + timing.render.toFixed(1) +
+           ' 합계=' + timing.total.toFixed(1) + ' ms');
+    L.push('품질 image ' + JSON.stringify(scenes.image.quality));
+    L.push('품질 wire  ' + JSON.stringify(scenes.wire.quality));
+    el('debugout').textContent = L.join('\n');
+  }
+
+  /* ---------------- 읽기값 ---------------- */
+  function syncReadouts(meas) {
+    var k = 2 * Math.PI / state.lambda;
+    var kap1 = M.theoryKappa(1, state.a, k);
+    var cutoffStage = (kap1 !== null) && (kap1 * GEO.L >= 3);   // v1 §10-3 자동 판정
+
+    el('lambdaVal').textContent = cm(state.lambda).toFixed(1) + ' cm  (λ/a=' + (state.lambda / state.a).toFixed(2) + ')';
+    el('aVal').textContent = cm(state.a).toFixed(1) + ' cm';
+    el('y0Val').textContent = state.y0OverA.toFixed(3);
+    el('nVal').textContent = state.N + ' 쌍' + (state.cesaro ? ' (Cesàro)' : ' (단순 합)');
+    el('gammaVal').textContent = state.gamma.toFixed(2);
+
+    var q = scenes.wire.quality;
+    el('dVal').textContent = q.d.toFixed(3) + ' mm  (d/λ=' + q.dOverLambda.toFixed(3) + ')';
+    el('awVal').textContent = q.aw.toFixed(4) + ' mm' + (q.awAuto ? ' (자동 d/2π)' : '') +
+      '  a_w/d=' + q.awOverD.toFixed(4);
+    el('deltaVal').textContent = 'δ = ' + (q.delta >= 0 ? '+' : '') + q.delta.toFixed(4) +
+      '셀,  a_eff = ' + q.aEff.toFixed(2) + '셀 (명목 ' + state.a + ')';
+    el('plateVal').textContent = '도체판 위 |E| 평균: ' + scenes.image.quality.plateAvg.toFixed(6);
+    el('wallTVal').textContent = '벽 누설 |T| = ' + q.wallT.toFixed(4) + ',  도선 ' + (2 * q.nW) + '개';
+
+    // 경고 배지 (v1 §10-2 + a_w 2단계)
+    var warn = [];
+    if (q.dOverLambda > 0.1) warn.push('⚠ d/λ = ' + q.dOverLambda.toFixed(3) + ' — 벽 근사 무너짐');
+    if (q.wallT > 0.35) warn.push('⚠ |T| = ' + q.wallT.toFixed(3) + ' — 모드 분해 신뢰도 낮음');
+    if (q.awOverD >= 0.5) warn.push('⛔ 도선이 물리적으로 겹칩니다 (a_w/d = ' + q.awOverD.toFixed(3) + ') — 결과가 무의미합니다');
+    else if (q.awOverD > 0.25) warn.push('⚠ 얇은 도선 근사 이탈 (a_w/d = ' + q.awOverD.toFixed(3) + ') — 반지름을 줄이거나 간격을 넓히세요');
+    el('warnBox').innerHTML = warn.map(function (w) { return '<div class="warn">' + w + '</div>'; }).join('');
+
+    el('stageBadge').textContent = cutoffStage
+      ? '차단 무대 (κ₁·L = ' + (kap1 * GEO.L).toFixed(1) + ' ≥ 3)'
+      : '전파 영역 — 내부 양상 비교 · 정량 지표는 탭 4';
+    el('stageBadge').className = cutoffStage ? 'badge cutoff' : 'badge prop';
+
+    // 차단 무대일 때만 관 내부 상대 차이 (G4와 같은 지표·같은 영역)
+    if (cutoffStage) {
+      el('diffVal').textContent = '관 내부 상대 차이: ' +
+        (relL2(scenes.image.tot, scenes.wire.tot) * 100).toFixed(1) + '%';
+      el('diffVal').style.display = '';
+    } else el('diffVal').style.display = 'none';
+  }
+
+  function relL2(A, B) {
+    var t = M.jBotTop(state.a);
+    var i0 = Math.round(GEO.zToPix(GEO.G4_ZRANGE[0])), i1 = Math.round(GEO.zToPix(GEO.G4_ZRANGE[1]));
+    var sum = 0, cnt = 0, mx = 0;
+    for (var i = i0; i <= i1; i++) for (var j = t.jBot + 1; j < t.jTop; j++) {
+      var k = i * A.Ny + j;
+      var dr = A.re[k] - B.re[k], di = A.im[k] - B.im[k];
+      sum += dr * dr + di * di; cnt++;
+      var ma = A.re[k] * A.re[k] + A.im[k] * A.im[k], mb = B.re[k] * B.re[k] + B.im[k] * B.im[k];
+      if (ma > mx) mx = ma; if (mb > mx) mx = mb;
+    }
+    return Math.sqrt(sum / cnt) / Math.sqrt(mx);
+  }
+
+  /* ---------------- 입력 ---------------- */
+  var debounce = null;
+  function schedule() {
+    el('busy').style.display = '';          // 이전 프레임을 지우지 않는다 (백지 금지)
+    clearTimeout(debounce);
+    debounce = setTimeout(function () { recompute(); el('busy').style.display = 'none'; }, 250);
+  }
+
+  // mode: 'calc' = 디바운스 후 재계산 / 'view' = 표시만 (렌더 루프가 다음 프레임에 반영)
+  function bind(id, fn, mode) {
+    el(id).addEventListener('input', function (e) {
+      fn(e.target);
+      if (mode === 'view') { el('gammaVal').textContent = state.gamma.toFixed(2); }
+      else schedule();
+    });
+  }
+
+  function init() {
+    bind('lambda', function (t) { state.lambda = Math.round(+t.value * 10); });
+    bind('aGap',   function (t) { state.a = Math.round(+t.value * 10); });
+    bind('y0',     function (t) { state.y0OverA = +t.value; });
+    bind('nImg',   function (t) { state.N = +t.value; });
+    bind('dMan',   function (t) { state.dManual = +t.value; });
+    bind('awMan',  function (t) { state.aw = +t.value; });
+    bind('gamma',  function (t) { state.gamma = +t.value; }, 'view');
+    bind('speed',  function (t) { state.dPhi = +t.value; }, 'view');
+
+    el('centerBtn').addEventListener('click', function () {
+      state.y0OverA = 0.5; el('y0').value = 0.5; recompute();
+    });
+    el('cesaro').addEventListener('change', function (e) { state.cesaro = e.target.checked; recompute(); });
+    el('awAuto').addEventListener('change', function (e) {
+      state.awAuto = e.target.checked; el('awMan').disabled = state.awAuto; recompute();
+    });
+    el('dAuto').addEventListener('change', function (e) {
+      state.dAutoOn = e.target.checked; el('dMan').disabled = state.dAutoOn; recompute();
+    });
+    el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
+    el('pauseBtn').addEventListener('click', function () {
+      state.paused = !state.paused;
+      el('pauseBtn').textContent = state.paused ? '▶ 재개' : '⏸ 일시정지';
+    });
+
+    var box = el('presets');
+    PRESETS.forEach(function (p, i) {
+      var b = document.createElement('button');
+      b.className = 'preset'; b.textContent = p.label;
+      b.addEventListener('click', function () {
+        state.a = p.a; state.lambda = p.lambda; state.y0OverA = p.y0OverA;
+        el('aGap').value = cm(p.a); el('lambda').value = cm(p.lambda); el('y0').value = p.y0OverA;
+        Array.prototype.forEach.call(box.children, function (c) { c.className = 'preset'; });
+        b.className = 'preset active';
+        recompute();
+      });
+      box.appendChild(b);
+    });
+
+    // 캔버스 백킹 520×220, CSS로 축소, image-rendering: pixelated (v1 §9-5)
+    ['inc', 'scat', 'tot'].forEach(function (row) {
+      ['image', 'wire'].forEach(function (side) {
+        var c = el('cv-' + row + '-' + side);
+        c.width = GEO.Nx; c.height = GEO.Ny;
+      });
+    });
+
+    if (DEBUG) el('debugbox').style.display = '';
+    el('nImg').max = GEO.N_MAX;
+    recompute();
+    requestAnimationFrame(render);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})(typeof globalThis !== 'undefined' ? globalThis : this);
