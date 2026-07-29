@@ -101,6 +101,23 @@ git mv "line waveguides"         line-wire
 - node에서는 `require('./adapters.js')` 한 줄. `core.js`는 `require.main !== module`이라 selfTest가 조용하다.
 - ES 모듈·`fetch`를 쓰지 않는다.
 
+### 3-1. `file://` 고유 출처 — ES 모듈이 금지인 실제 이유
+
+`file://`은 **문서 하나하나가 고유한(opaque) 출처**다. 같은 파일이라도 자기 자신과 출처가 다르다. 따라서
+
+| 방식 | `file://` 더블클릭 | 비고 |
+|---|---|---|
+| `<script src>` 클래식 | ✅ 동작 | 출처 검사 대상이 아님. 상위 폴더(`../`)도 됨 |
+| `<link href>` | ✅ 동작 | 동일 |
+| `<script type="module">` | ❌ 실패 | CORS 검사를 받음 |
+| `fetch` / `XHR` | ❌ 실패 | 동일 |
+
+`line-wire/higher-order/index.html`이 `../core.js`·`../hankel.js`·`../field.js`를 상위 폴더에서 불러와 정상 동작하는 것이 실증이다. 통합 페이지의 `../image-source/hankel.js` 로드도 같은 종류다.
+
+> **참고 — 콘솔 메시지**
+> `Unsafe attempt to load URL file:///… from frame with URL file:///… 'file:' URLs are treated as unique security origins.`
+> 이 메시지는 **이 프로젝트 코드에서 나오지 않는다.** 두 원본 페이지의 JS·HTML 전체에 `fetch`·`XHR`·`iframe`·`<img>`·`<a>`·`window.open`·`location.*`·`import()`가 0건이다. 브라우저 확장의 콘텐츠 스크립트가 원인이며 동작에 영향이 없다. 시크릿 창(확장 꺼짐)에서 사라지는 것으로 확인할 수 있다.
+
 ---
 
 ## 4. `geometry.js` (v1 §4 그대로 + 3개 추가)
@@ -530,7 +547,7 @@ v1 §10-0(컨트롤 3분할·탭 간 상태 유지), §10-1, §10-3, §10-4의 �
 
 | 단계 | 작업 | 완료 조건 |
 |---|---|---|
-| **0** | ~~폴더 rename~~ **완료** | 기존 두 페이지 브라우저 동작 확인 **← 미완** |
+| **0** | 폴더 rename | ✅ **완료** — 아래 10-0 참조 |
 | **1** | `unified/index.html` 부트스트랩, 네임스페이스 격리 | v1 §3의 6개 함수가 콘솔에 function |
 | **2** | `geometry.js` + Scene 계약 확정 | — |
 | **3** | `adapters.js` (UMD, node 실행 가능) | **G0 PASS** |
@@ -545,6 +562,18 @@ v1 §10-0(컨트롤 3분할·탭 간 상태 유지), §10-1, §10-3, §10-4의 �
 | **11** | 탭 4 (C) 수렴 스캔 | 시각 확인 |
 
 **각 단계 완료 후 콘솔 출력을 보고하고, 승인 전에는 다음으로 넘어가지 않는다.**
+
+### 10-0. 단계 0 검증 기록 (2026-07-29)
+
+| 항목 | 결과 |
+|---|---|
+| 원본 파일 무결성 | ✅ 17개 전부 `R100` (`git diff --find-renames`, 내용 무변경) |
+| `<script src>`·`<link href>` 경로 15개 | ✅ 전부 해결 |
+| JS 13개 구문 (`node --check`) | ✅ 전부 정상 |
+| MoM 물리 코어 (`node line-wire/core.js`) | ✅ 5/5 PASS — κ 99.9·100.4·100.1%, k_z 100.6·100.5% |
+| 두 원본 페이지 브라우저 동작 | ✅ 정상 (사용자 확인) |
+
+`selfTest`가 v1 §13의 숫자를 그대로 재현했다. **MoM 엔진 자체는 정상이며, 불확실한 것은 소스 배치와 창뿐이다** (§11-4).
 
 ### 10-1. 성능 (v1 §11-1 그대로)
 
