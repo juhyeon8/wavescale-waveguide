@@ -91,11 +91,16 @@
    *   도선관        : 가리지 않음. 경계선만 (값이 있으나 좌우 비교 대상이 아닐 뿐) */
   var MASK_FILL = 'rgba(20,24,40,0.72)';
 
+  /* 글자는 캔버스에 그리지 않는다 — 백킹 Nx×Ny 가 CSS 배율로 리샘플되면 흐려진다.
+   * 원본 render.js:updateOverlays 와 같은 방식으로 HTML span 이 맡는다
+   * ("도체판·mm 라벨을 HTML span으로 관리 — 캔버스 CSS 스케일에 무관하게 선명").
+   * 캔버스에는 마스크 사각형(채우기라 배율 무관)만 남긴다.
+   * 라벨 좌표는 장 좌표계(jPix)로 돌려주고, 배치는 ui.js 가 백분율로 환산한다. */
   function drawMask(ctx, scene, row) {
-    if (row === 'inc') return { boxes: [] };          // 1행은 양쪽 모두 마스크 없음
-    var yTop = cy(Math.round(scene.walls.yTopPix));
-    var yBot = cy(Math.round(scene.walls.yBotPix));
-    var boxes = [];
+    if (row === 'inc') return { boxes: [], labels: [] };   // 1행은 양쪽 모두 마스크 없음
+    var jTop = Math.round(scene.walls.yTopPix), jBot = Math.round(scene.walls.yBotPix);
+    var yTop = cy(jTop), yBot = cy(jBot);
+    var boxes = [], labels = [];
 
     if (scene.method === 'image') {
       // 벽 바깥 = 가림
@@ -103,13 +108,11 @@
       ctx.fillRect(0, 0, GEO.Nx, yTop);                       // 위쪽 띠
       ctx.fillRect(0, yBot + 1, GEO.Nx, GEO.Ny - yBot - 1);   // 아래쪽 띠
       boxes.push([0, 0, GEO.Nx, yTop], [0, yBot + 1, GEO.Nx, GEO.Ny - yBot - 1]);
-      ctx.save();
-      ctx.fillStyle = '#9aa3b8'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('계산 영역 밖', GEO.Nx / 2, yTop / 2 + 4);
-      ctx.fillText('계산 영역 밖', GEO.Nx / 2, yBot + (GEO.Ny - yBot) / 2 + 4);
-      ctx.restore();
+      labels.push(
+        { kind: 'mask', text: '계산 영역 밖', xPix: GEO.Nx / 2, yPix: (GEO.Ny - 1 + jTop) / 2 },
+        { kind: 'mask', text: '계산 영역 밖', xPix: GEO.Nx / 2, yPix: (jBot - 1) / 2 });
     }
-    return { boxes: boxes };
+    return { boxes: boxes, labels: labels };
   }
 
   /* ---------- 벽·경계선 ---------- */
@@ -141,12 +144,14 @@
    * 물리적 정직성 요구사항이며 미적 선택이 아니다. */
   function drawMarkers(ctx, scene, maxWeight) {
     var stat = { 'image-source': 0, wire: 0, source: 0 };
+    var drawn = { 'image-source': 0, wire: 0, source: 0, total: 0 };
     ctx.save();
     scene.markers.forEach(function (m) {
       stat[m.kind] = (stat[m.kind] || 0) + 1;
       var x = m.xPix + 0.5, y = cy(m.yPix) + 0.5;
       // 영상원은 y = y0 ± r·a 라 대부분 캔버스 밖이다 (N=160이면 ±9600셀). 미리 걸러낸다.
       if (y < -6 || y > GEO.Ny + 6 || x < -6 || x > GEO.Nx + 6) return;
+      drawn[m.kind] = (drawn[m.kind] || 0) + 1; drawn.total++;
       if (m.kind === 'image-source') {
         ctx.strokeStyle = 'rgba(120,150,220,' + Math.max(0.15, m.weight) + ')';
         ctx.lineWidth = 1;
@@ -161,7 +166,7 @@
       }
     });
     ctx.restore();
-    return stat;
+    return { counts: stat, drawn: drawn };   // 컬링 전(counts) / 화면 내(drawn)
   }
 
   function maxWireWeight(scene) {
@@ -186,20 +191,22 @@
              label: '감쇠길이 1/κ = ' + (1 / kap / 10).toFixed(1) + ' cm (모드 1)', theory: kap };
   }
 
+  // 선과 끝 눈금은 캔버스에 남긴다 — 장 좌표계에 있어야 마루 간격·감쇠 거리와의
+  // 정렬이 보장된다 (v1 §9-4). 글자만 HTML span 으로 옮긴다.
   function drawRuler(ctx, spec) {
     var y = cy(GEO.y0pix);
     var x0 = GEO.zToPix(spec.zStart), x1 = GEO.zToPix(spec.zStart + spec.len);
     ctx.save();
-    ctx.strokeStyle = '#1b2030'; ctx.fillStyle = '#1b2030'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#1b2030'; ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x0 + 0.5, y - 6); ctx.lineTo(x0 + 0.5, y + 6);
     ctx.moveTo(x1 + 0.5, y - 6); ctx.lineTo(x1 + 0.5, y + 6);
     ctx.moveTo(x0 + 0.5, y + 0.5); ctx.lineTo(x1 + 0.5, y + 0.5);
     ctx.stroke();
-    ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(spec.label, (x0 + x1) / 2, y - 10);
     ctx.restore();
-    return { x0: x0, x1: x1 };
+    return { x0: x0, x1: x1,
+             label: { kind: 'ruler', text: spec.label,
+                      xPix: (x0 + x1) / 2, yPix: GEO.y0pix + 10 } };
   }
 
   /* ---------- 한 패널 그리기 ---------- */
@@ -209,7 +216,8 @@
     drawField(ctx, scene[row], scale, gamma, phase);
     info.mask = drawMask(ctx, scene, row);
     drawWalls(ctx, scene);
-    if (opts.ruler) info.ruler = drawRuler(ctx, opts.ruler);
+    info.labels = info.mask.labels.slice();
+    if (opts.ruler) { info.ruler = drawRuler(ctx, opts.ruler); info.labels.push(info.ruler.label); }
     info.markers = drawMarkers(ctx, scene, maxWireWeight(scene));
     return info;
   }

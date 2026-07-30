@@ -78,6 +78,34 @@
   function ctxOf(id) { return CTX[id] || (CTX[id] = el(id).getContext('2d')); }
   function markDirty() { dirty = true; }
 
+  /* ---------------- 캔버스 라벨 → HTML span ----------------
+   * 원본 image-source/render.js:updateOverlays 와 같은 방식이다.
+   * 캔버스 백킹은 Nx×Ny 이고 CSS로 배율이 걸리므로 캔버스에 그린 글자는 리샘플된다.
+   * span 은 문서 좌표에 있어 배율과 무관하게 선명하고, 폰트 크기는 CSS(.cv-label)로만
+   * 정한다 — 캔버스가 작아져도 읽혀야 한다. 백킹 해상도는 올리지 않는다. */
+  var labelPool = {};
+  function syncLabels(id, labels) {
+    var panel = el(id).parentNode;
+    var pool = labelPool[id] || (labelPool[id] = []);
+    while (pool.length < labels.length) {
+      var s = document.createElement('span');
+      panel.appendChild(s); pool.push(s);
+    }
+    var out = [];
+    pool.forEach(function (s, i) {
+      var L = labels[i];
+      if (!L) { s.style.display = 'none'; return; }
+      var left = (L.xPix / GEO.Nx) * 100;
+      var top = ((GEO.Ny - 1 - L.yPix) / GEO.Ny) * 100;   // j 뒤집기 유지
+      s.style.display = ''; s.className = 'cv-label ' + L.kind;
+      s.textContent = L.text;
+      s.style.left = left + '%';
+      s.style.top = top + '%';
+      out.push({ text: L.text, left: left, top: top, kind: L.kind });
+    });
+    return out;
+  }
+
   // rAF는 창이 숨겨지면 아예 실행되지 않는다. 첫 프레임은 기다리지 않고 직접 그린다.
   function render() {
     // 정지 중이고 바뀐 것이 없으면 다시 그리지 않는다 (CPU 절약 + 화면이 안정되어 캡처 가능)
@@ -98,6 +126,7 @@
         var id = 'cv-' + row + '-' + side;
         var opts = (row === 'tot') ? { ruler: rulerS } : {};
         var info = R.drawPanel(ctxOf(id), scenes[side], row, scales[row], state.gamma, state.phase, opts);
+        info.labelBoxes = syncLabels(id, info.labels);
         if (DEBUG) dbg.panels[id] = info;
       });
       el('scale-' + row).textContent = scales[row].toExponential(3);
@@ -129,6 +158,16 @@
     L.push('산란장 계산 범위: j=[' + qi.jBot + ',' + qi.jTop + '] (' + GEO.Ny + '행 중 ' +
            qi.bandRows + '행)' + (qi.scatBand ? '' : '  ← 벽 사이 제한 OFF (전 영역, 대조용)'));
 
+    // 화면 지표의 정의 — 게이트 지표와 같은 영역·같은 정규화인지 대조할 수 있게 명시한다
+    var jt = M.jBotTop(state.a);
+    L.push('지표 정의: 관 내부 상대 차이 = RMS(E_tot,영상법 − E_tot,도선관) / max|E_tot|');
+    L.push('           영역 = 벽 사이 (' + jt.jBot + ' < j < ' + jt.jTop + ')  ∧  z ∈ [' +
+           GEO.G4_ZRANGE.join(', ') + '] = 픽셀 x [' +
+           Math.round(GEO.zToPix(GEO.G4_ZRANGE[0])) + ', ' +
+           Math.round(GEO.zToPix(GEO.G4_ZRANGE[1])) + ']  (GEO.G4_ZRANGE)');
+    L.push('           = verify.js G4 의 ★행(영상법↔도선관)과 같은 영역·같은 정규화.');
+    L.push('           ★는 두 오차의 합이라 게이트가 아니다 — 게이트는 모드합↔각 방법 (설계 §11-9).');
+
     ['image', 'wire'].forEach(function (side) {
       var s = scenes[side], w = s.walls;
       L.push('벽 ' + side.padEnd(6) + ' yTop=' + w.yTopPix + ' yBot=' + w.yBotPix +
@@ -146,10 +185,29 @@
     ['image', 'wire'].forEach(function (side) {
       var mk = scenes[side].markers, st = {};
       mk.forEach(function (m) { st[m.kind] = (st[m.kind] || 0) + 1; });
-      L.push('마커 ' + side.padEnd(6) + ' 총 ' + mk.length + '  ' +
-             Object.keys(st).map(function (k) { return k + '=' + st[k]; }).join(' ') +
+      // 총계는 컬링 전 개수다. 영상원은 y = y0 ± r·a 라 대부분 캔버스 밖이므로
+      // 화면 내 개수를 함께 찍는다 — 총계만 보면 전부 그려지는 것처럼 읽힌다.
+      var dr = (dbg.panels['cv-tot-' + side] || {}).markers;
+      L.push('마커 ' + side.padEnd(6) + ' 총 ' + mk.length +
+             (dr ? ' (화면 내 ' + dr.drawn.total + ')' : '') + '  ' +
+             Object.keys(st).map(function (k) {
+               return k + '=' + st[k] + (dr ? '/' + (dr.drawn[k] || 0) : '');
+             }).join(' ') + (dr ? '  (총/화면내)' : '') +
              '  첫(' + mk[0].xPix.toFixed(1) + ',' + mk[0].yPix.toFixed(1) + ')' +
              ' 끝(' + mk[mk.length - 1].xPix.toFixed(1) + ',' + mk[mk.length - 1].yPix.toFixed(1) + ')');
+    });
+
+    // ── 라벨 (단계 D) ── 텍스트와 계산된 백분율을 그대로 찍어 대조 가능하게 한다
+    L.push('── 라벨 (HTML span) ──');
+    ['inc', 'scat', 'tot'].forEach(function (row) {
+      ['image', 'wire'].forEach(function (side) {
+        var info = dbg.panels['cv-' + row + '-' + side];
+        if (!info || !info.labelBoxes || !info.labelBoxes.length) return;
+        info.labelBoxes.forEach(function (b) {
+          L.push('  ' + (row + '/' + side).padEnd(11) + b.kind.padEnd(6) +
+                 ' left ' + b.left.toFixed(2) + '%  top ' + b.top.toFixed(2) + '%  "' + b.text + '"');
+        });
+      });
     });
     var r = dbg.panels['cv-tot-image'].ruler, r2 = dbg.panels['cv-tot-wire'].ruler;
     L.push('눈금자 ' + rulerS.kind + '  image x[' + r.x0.toFixed(1) + ',' + r.x1.toFixed(1) + ']' +
@@ -386,9 +444,14 @@
         d.sideW = Math.max(d.relaxed ? SIDE_MIN : SIDE_2COL,
                     Math.min(SIDE_MAX, Math.floor(availW - d.gridW - GAP_X)));
         d.twoCol = d.sideW >= SIDE_2COL;             // 실제로 2열이 되었는가
+        d.sideCapped = d.sideW >= SIDE_MAX;
         d.scale = d.colW * dpr / GEO.Nx;
         d.shrink = d.scale < 1;                      // 축소 불가피
         d.slack = availW - d.gridW - GAP_X - d.sideW;
+        // 바인딩은 스냅 전 값으로 판정한다 — 스냅 후 colW 는 두 후보 중 어느 것도 아니다.
+        d.cand = d.relaxed ? d.byW1 : d.byW2;
+        d.binding = d.byH < d.cand ? '세로' : (d.byH > d.cand ? '가로' : '세로=가로');
+        d.freed = 2 * (d.colWraw - d.colW);          // 스냅으로 회수된 폭
 
         side.style.flex = '0 0 ' + d.sideW + 'px';
         side.classList.toggle('wide', d.twoCol);
@@ -462,12 +525,15 @@
       '제약 판정: 가로 ' + (d.relaxed ? d.byW1 : d.byW2) + ' / 세로 ' + d.byH +
         ' / 사이드바 2열 ' + (d.twoCol ? 'ON' : 'OFF') + '(' + d.sideW + ')' +
         ' / 채택 colW ' + d.colW + '  (바닥 ' + d.colWmin + ')',
-      '           바인딩 = ' + (d.colW === d.byH ? '세로' : '가로') +
+      '           바인딩 = ' + d.binding + ' (스냅 전 ' + d.colWraw + ' = min(세로 ' + d.byH +
+        ', 가로 ' + d.cand + '))' +
         ' · 캡션 ' + (el('compare').classList.contains('capfold') ? '접힘' : '펼침') +
         ' · 압축(c) ' + (d.tight ? 'ON' : 'OFF') +
         ' · 2열예약포기(d) ' + (d.relaxed ? 'ON' : 'OFF') +
-        ' · rowH ' + d.rowH.toFixed(1) + ' gridW ' + d.gridW.toFixed(1) +
-        ' · 남는 폭 ' + d.slack.toFixed(1) + ' (그리드 가운데 정렬)'
+        ' · rowH ' + d.rowH.toFixed(1) + ' gridW ' + d.gridW.toFixed(1),
+      '남는 폭 처리: 스냅 회수 ' + d.freed.toFixed(1) + 'px → 사이드바 ' + d.sideW +
+        (d.sideCapped ? ' (상한 ' + SIDE_MAX + ' 도달 — 더 흡수 못 함)' : ' (흡수 중)') +
+        ' · 여백 ' + d.slack.toFixed(1) + 'px (그리드 가운데 정렬)'
     ] : ['제약 판정: (폴백 배치 — CSS에 맡김)']);
   }
 
