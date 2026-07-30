@@ -84,6 +84,9 @@ button:hover { background:#252d54; }
 .panel canvas { width:100%; height:100%; display:block;
   image-rendering:pixelated; background:#fff;
   border:1px solid var(--line); border-radius:4px; }
+/* 축소가 불가피할 때만 layout()이 켠다. 최근접은 축소 구간에서 소스 행을 버려
+   단일 행인 1px 벽선을 통째로 지운다 — 흐릿하더라도 남기는 쪽이 정직하다. */
+.compare.smooth .panel canvas { image-rendering:auto; }
 .capcell { font-size:0.68rem; line-height:1.45; color:#7e879e; }
 .capcell p { margin:0 0 4px; }
 .capcell p:last-child { margin-bottom:0; }

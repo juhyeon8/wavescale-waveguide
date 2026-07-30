@@ -61,6 +61,8 @@
 
     <!-- 계시기 — 사이드바 하단 고정 (§10-2). 임시 계측이 아니라 영구 기능이다. -->
     <div class="sidebar-foot">
+      <!-- 축소 경고는 ?debug=1 밖에 둔다. 평소에 축소된 화면을 모르고 보면 안 된다. -->
+      <div id="scaleWarn" class="warn" style="display:none"></div>
       <div id="diffVal" class="diff"></div>
       <button id="measBtn" type="button">측정 (5회 중앙값)</button>
       <pre id="measOut" class="measout"></pre>

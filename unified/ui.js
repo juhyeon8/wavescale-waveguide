@@ -314,8 +314,10 @@
     layoutLog.lastMain = main.clientWidth + 'x' + main.clientHeight;
 
     if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
-      grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = '';
+      grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = ''; grid.style.margin = '';
+      grid.classList.remove('smooth');
       side.style.flex = ''; side.classList.remove('wide');
+      el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
       layoutLog.fallback++; layoutLog.d = null;
       return;
     }
@@ -353,19 +355,38 @@
         }
         if (!(d.colW > 40)) return null;
 
-        d.rowH = Math.round(d.colW * GEO.Ny / GEO.Nx);
+        /* 정수 배율 스냅 — 정확성 요구사항이지 최적화가 아니다.
+         * 배율이 정수가 아니면 pixelated 가 일부 소스 행만 두 번 그려 1px 벽선의
+         * 두께가 1px·2px 로 섞인다. 정수로 내리면 소스 1픽셀 = 장치 N픽셀이 된다.
+         * 종횡비를 유지하고 백킹이 Nx×Ny 이므로 가로가 정수면 세로도 자동으로 정수다. */
+        d.colWraw = d.colW;
+        d.scaleRaw = d.colW * dpr / GEO.Nx;
+        if (d.scaleRaw >= 1) {
+          d.snap = Math.floor(d.scaleRaw);
+          d.colW = d.snap * GEO.Nx / dpr;            // 장치 픽셀로는 정확히 snap×Nx
+        } else {
+          d.snap = 0;                                 // 축소 — 스냅할 정수 배율이 없다
+        }
+        d.rowH = d.colW * GEO.Ny / GEO.Nx;
         d.gridW = LBL_W + 2 * d.colW + 2 * COL_GAP;
         // 제약 4 — 남는 폭은 사이드바가 흡수하되 상한을 넘지 않는다
         d.sideW = Math.max(d.relaxed ? SIDE_MIN : SIDE_2COL,
-                    Math.min(SIDE_MAX, availW - d.gridW - GAP_X));
+                    Math.min(SIDE_MAX, Math.floor(availW - d.gridW - GAP_X)));
         d.twoCol = d.sideW >= SIDE_2COL;             // 실제로 2열이 되었는가
         d.scale = d.colW * dpr / GEO.Nx;
-        d.shrink = d.colW < colWmin;                 // 축소 불가피
+        d.shrink = d.scale < 1;                      // 축소 불가피
+        d.slack = availW - d.gridW - GAP_X - d.sideW;
 
         side.style.flex = '0 0 ' + d.sideW + 'px';
         side.classList.toggle('wide', d.twoCol);
-        grid.style.gridTemplateColumns = LBL_W + 'px ' + d.colW + 'px ' + d.colW + 'px';
-        grid.style.gridTemplateRows = 'auto ' + d.rowH + 'px ' + d.rowH + 'px ' + d.rowH + 'px auto';
+        // 최근접(pixelated)은 축소 구간에서 데이터를 버린다 — 단일 행인 벽선이 통째로
+        // 사라진다. 흐릿하더라도 남기는 쪽이 정직하므로 그때만 auto 로 바꾼다.
+        grid.classList.toggle('smooth', d.shrink);
+        // ⑤ 남는 폭 안에서 그리드를 가운데로 (왼쪽으로 몰리면 사이드바와 붙어 보인다)
+        grid.style.margin = '0 auto';
+        var cw = d.colW.toFixed(3), rh = d.rowH.toFixed(3);
+        grid.style.gridTemplateColumns = LBL_W + 'px ' + cw + 'px ' + cw + 'px';
+        grid.style.gridTemplateRows = 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
       }
       return d;
     }
@@ -383,6 +404,16 @@
     }
     if (!d) return;
     d.tight = body.classList.contains('tight');
+
+    // 축소 경고는 ?debug=1 밖에 둔다 — 평소에 축소된 화면을 모르고 보면 안 된다.
+    // 배율 1.000 이면 표시하지 않는다.
+    var w = el('scaleWarn');
+    if (d.shrink) {
+      w.textContent = '⚠ 캔버스 축소 표시 (배율 ' + d.scale.toFixed(2) +
+                      ') — 창을 크게 하거나 줌을 낮추세요';
+      w.style.display = '';
+    } else { w.textContent = ''; w.style.display = 'none'; }
+
     layoutLog.applied++;
     layoutLog.d = d;
   }
@@ -409,8 +440,12 @@
     ].concat(d ? [
       '실효DPR ' + d.dpr.toFixed(3) + '  (devicePixelRatio 단독 — 줌이 이미 곱해져 있다.' +
         ' 참고 줌 ' + d.zoom.toFixed(3) + ')',
-      '캔버스 배율 ' + d.scale.toFixed(3) + '  (= colW ' + d.colW + ' × 실효DPR ' + d.dpr.toFixed(3) +
-        ' / ' + GEO.Nx + ')' + (d.scale >= 1 ? '  ✓ 축소 없음' : '  ⚠ 축소 — 벽선이 끊길 수 있음'),
+      '캔버스 배율 ' + d.scale.toFixed(3) + '  (= colW ' + d.colW.toFixed(1) + ' × 실효DPR ' +
+        d.dpr.toFixed(3) + ' / ' + GEO.Nx + ')' +
+        (d.scale >= 1 ? '  ✓ 축소 없음' : '  ⚠ 축소 — 벽선(단일 행)이 사라질 수 있음'),
+      '정수 스냅: 스냅 전 colW ' + d.colWraw + ' (배율 ' + d.scaleRaw.toFixed(3) + ')' +
+        ' → 후 ' + d.colW.toFixed(1) + ' (×' + (d.snap || '—') + ')' +
+        '  · 렌더링 ' + (d.shrink ? 'auto (축소 구간)' : 'pixelated'),
       '제약 판정: 가로 ' + (d.relaxed ? d.byW1 : d.byW2) + ' / 세로 ' + d.byH +
         ' / 사이드바 2열 ' + (d.twoCol ? 'ON' : 'OFF') + '(' + d.sideW + ')' +
         ' / 채택 colW ' + d.colW + '  (바닥 ' + d.colWmin + ')',
@@ -418,8 +453,8 @@
         ' · 캡션 ' + (el('compare').classList.contains('capfold') ? '접힘' : '펼침') +
         ' · 압축(c) ' + (d.tight ? 'ON' : 'OFF') +
         ' · 2열예약포기(d) ' + (d.relaxed ? 'ON' : 'OFF') +
-        ' · rowH ' + d.rowH + ' gridW ' + d.gridW +
-        ' · 가로 여유 ' + (main.clientWidth - d.gridW - GAP_X - d.sideW)
+        ' · rowH ' + d.rowH.toFixed(1) + ' gridW ' + d.gridW.toFixed(1) +
+        ' · 남는 폭 ' + d.slack.toFixed(1) + ' (그리드 가운데 정렬)'
     ] : ['제약 판정: (폴백 배치 — CSS에 맡김)']);
   }
 
