@@ -118,7 +118,7 @@
   <!-- ===== 탭 4 — 물리 지표 (A) 표 + (B) 분산 곡선 ===== -->
   <div class="tab4" id="tab4" style="display:none">
 
-    <div class="t4-table">
+    <div class="t4-table" id="t4table">
       <table id="metricTable">
         <thead><tr>
           <th>모드</th><th>결합</th><th>상태</th><th>Griffiths 이론</th>
@@ -133,7 +133,7 @@
       정확해로 수렴하는 것을 봅니다.</p>
     </div>
 
-    <div class="t4-chart">
+    <div class="t4-chart" id="t4chart">
       <div class="t4-chartbox"><canvas id="cvDisp"></canvas><div id="ptTip" class="pttip"></div></div>
       <div class="t4-chartfoot">
         <button id="clearPts" type="button">측정점 지우기</button>
@@ -147,7 +147,7 @@
     <!-- (C) 수렴 스캔 — 접이식, 기본 접힘. 두 패널이 서로 다른 발견을 보인다.
          OFF·단순 곡선이 결과이고, ON·Cesàro 는 100%에 평평하다. 대비가 내용이다. -->
     <div class="t4-scan folded" id="t4scan">
-      <div class="t4-scanhead">
+      <div class="t4-scanhead" id="t4scanhead">
         <button id="scanFold" type="button">(C) 수렴 스캔 ▸</button>
         <button id="scanRun" type="button">스캔 실행</button>
         <button id="scanClear" type="button">지우기</button>

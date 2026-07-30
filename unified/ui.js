@@ -82,7 +82,10 @@
     window.__meas = meas;
     collectPoints(meas);
     syncReadouts(meas);
-    if (state.tab === 4) updateTable(meas);
+    // 표를 채운 뒤 다시 배치한다 — (B) 높이가 (A) 표 높이에서 나오는데,
+    // setTab 이 부른 layout() 은 표가 비어 있을 때 돌았다.
+    // (A) 표 높이는 차트 크기에 의존하지 않으므로 순환하지 않는다.
+    if (state.tab === 4) { updateTable(meas); layout(); }
     drawFrame();          // rAF를 기다리지 않는다 (창이 숨겨져 있어도 그림이 남는다)
   }
 
@@ -211,6 +214,24 @@
       L.push('  차트 캔버스 백킹 ' + cv4.width + '×' + cv4.height +
              ' · 표시 ' + r4.width.toFixed(0) + '×' + r4.height.toFixed(0) +
              ' · DPR ' + window.devicePixelRatio + ' (표시×DPR 방식, 정수 스냅 미적용)');
+      var t4 = layoutLog.t4;
+      if (t4) L.push('  세로 예산(뷰포트 산술): 가용 ' + t4.avail + ' − (A)표 ' + t4.tabH +
+                     ' − (C)머리글 ' + t4.shH + ' − gap 20 = (B) 높이 ' + t4.chartH +
+                     '   ((C) 실측 높이는 예산에 넣지 않는다)');
+      if (dispDiag) {
+        var dd = dispDiag;
+        L.push('  (B) 축 픽셀: 상단 ' + dd.topPx.toFixed(1) + ' · 0선 ' + dd.y0px.toFixed(1) +
+               ' · 하단 ' + dd.botPx.toFixed(1) +
+               '  → 축 아래(κ 분기) 높이 ' + (dd.botPx - dd.y0px).toFixed(1) + 'px');
+        L.push('  (B) 범위 매핑 확인: y=+3.180(u=0.6 모드1) → ' + dd.chk.hi.toFixed(1) +
+               'px · y=−2.926(u=3.0 모드3) → ' + dd.chk.lo.toFixed(1) +
+               'px · y=' + Y0 + '..' + Y1 + ' → ' + dd.chk.y0.toFixed(1) + '..' + dd.chk.y1.toFixed(1) + 'px');
+        L.push('  (B) 이론 곡선 폴리라인 점수 (전파/차단): ' +
+               [1, 2, 3].map(function (n) {
+                 return '모드' + n + ' ' + dd.branches[n].prop + '/' + dd.branches[n].cut;
+               }).join(' · ') + '   차단이 0이면 안 그려진 것');
+        L.push('  (B) 현재 점: ' + (dd.cur.length ? dd.cur.join(' · ') : '없음(측정 불가)'));
+      }
       L.push('── 탭 4 (C) 수렴 스캔 ──');
       L.push('  ' + (el('t4scan').classList.contains('folded') ? '접힘' : '펼침') +
              ' · ' + el('scanInfo').textContent);
@@ -422,7 +443,7 @@
     return dpr;
   }
 
-  var chartBox = null;
+  var chartBox = null, dispDiag = null;
   function drawDispersion() {
     var cv = el('cvDisp');
     if (!cv.getBoundingClientRect().width) return;
@@ -458,16 +479,20 @@
     ctx.save(); ctx.translate(12 * dpr, (padT + H - padB) / 2); ctx.rotate(-Math.PI / 2);
     ctx.fillText('축 위 k_z / k_c1   ·   축 아래 κ / k_c1', 0, 0); ctx.restore();
 
-    // 이론 곡선 3개 — 공식이라 비용 0
+    // 이론 곡선 3개 — 공식이라 비용 0. 분기별 점 개수를 세어 진단에 남긴다.
+    dispDiag = { y0px: Y(0), topPx: padT, botPx: H - padB, dpr: dpr, branches: {} };
     [1, 2, 3].forEach(function (n) {
       ctx.strokeStyle = MODE_COL[n]; ctx.lineWidth = 1.8 * dpr;
       ctx.beginPath();
+      var nProp = 0, nCut = 0;
       for (var i = 0, first = true; i <= 400; i++) {
         var uu = U0 + (U1 - U0) * i / 400, yy = yOf(uu, n);
         if (yy < Y0 || yy > Y1) { first = true; continue; }
+        if (yy >= 0) nProp++; else nCut++;
         if (first) { ctx.moveTo(X(uu), Y(yy)); first = false; } else ctx.lineTo(X(uu), Y(yy));
       }
       ctx.stroke();
+      dispDiag.branches[n] = { prop: nProp, cut: nCut };
       // 문턱 — 모드 n 은 λ/a = 2/n 에서 축을 가로지른다 (2.0 / 1.0 / 0.667)
       var ut = 2 / n;
       if (ut >= U0 && ut <= U1) {
@@ -479,11 +504,18 @@
       }
     });
 
+    // 범위 매핑 확인용 — 세 곡선의 극값이 실제로 어느 픽셀에 놓이는지
+    dispDiag.chk = { hi: Y(yOf(0.6, 1)), lo: Y(yOf(3.0, 3)), y0: Y(Y0), y1: Y(Y1) };
+    dispDiag.cur = [];
+
     // 측정점 — 영상법 채운 원, 도선관 속 빈 사각형 (사각형이 원을 감싸도록 뒤에 그린다)
     var uNow = state.lambda / state.a;
     pts.forEach(function (p) {
       if (p.y < Y0 || p.y > Y1) return;
       var x = X(p.u), y = Y(p.y), cur = Math.abs(p.u - uNow) < 0.005;
+      if (cur) dispDiag.cur.push((p.method === 'image' ? '영상법' : '도선관') + ' 모드' + p.n +
+        ' u=' + p.u.toFixed(3) + ' y=' + p.y.toFixed(3) +
+        ' (축 ' + (p.y >= 0 ? '위 k_z' : '아래 κ') + ') px y=' + y.toFixed(1));
       ctx.lineWidth = (cur ? 2.2 : 1.3) * dpr;
       if (p.method === 'wire') {
         ctx.strokeStyle = cur ? '#fff' : MODE_COL[p.n];
@@ -898,8 +930,19 @@
     // 별도 규칙을 쓴다 (원본 script.js:fitGraph) — 정수 스냅을 적용하지 않는다.
     if (state.tab === 4) {
       el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
+      /* (B)의 높이를 픽셀로 지정한다 — 탭 3 캡션과 같은 패턴(커밋 ef827b8).
+       * (C)의 실측 높이를 예산에 넣으면 펼침 → 예산 축소 → 차트 축소 → 예산 확대의
+       * 순환이 된다 (§10-1-2와 같은 함정). 그래서 뷰포트 산술만 쓴다.
+       * (A) 표와 (C) 머리글은 차트 크기에 의존하지 않으므로 실측해도 안전하다.
+       * (C) 를 펼치면 (B) 는 그대로이고 .tab4 가 세로로 스크롤된다. */
+      var avail = budgetH();
+      var tabH = el('t4table').offsetHeight;
+      var shH = el('t4scanhead').offsetHeight;
+      var chartH = Math.max(220, Math.floor(avail - tabH - shH - 2 * 10));
+      el('t4chart').style.height = chartH + 'px';
       fitChart(); markDirty();
       layoutLog.applied++; layoutLog.d = null;
+      layoutLog.t4 = { avail: avail, tabH: tabH, shH: shH, chartH: chartH };
       return;
     }
 
@@ -1147,7 +1190,9 @@
     el('scanFold').addEventListener('click', function () {
       var on = el('t4scan').classList.toggle('folded');
       el('scanFold').textContent = on ? '(C) 수렴 스캔 ▸' : '(C) 수렴 스캔 ▾';
-      markDirty();
+      // 접으면 (B)가 보이는 위치로 스크롤을 되돌린다
+      if (on) el('tab4').scrollTop = 0;
+      layout(); markDirty();
     });
     el('scanRun').addEventListener('click', scanRun);
     el('scanClear').addEventListener('click', function () {
