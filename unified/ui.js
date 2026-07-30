@@ -11,8 +11,12 @@
     a: 60, lambda: 144, y0OverA: 0.500,
     N: GEO.N, cesaro: GEO.CESARO, awAuto: GEO.AW_AUTO, aw: GEO.aw, scatBand: GEO.SCAT_BAND,
     dAutoOn: true, dManual: 5,
-    gamma: 0.4, phase: 0, dPhi: 0.15, paused: false, singleScale: false
+    gamma: 0.4, phase: 0, dPhi: 0.15, paused: false, singleScale: false,
+    tab: 3          // 1 영상법 / 2 도선관 / 3 나란히. 슬라이더 상태는 탭을 넘어 유지된다.
   };
+
+  // 탭이 보여주는 열. 탭 1·2는 탭 3에서 한 열을 숨긴 것이다 (v1 §10-1).
+  function sidesOf(tab) { return tab === 1 ? ['image'] : tab === 2 ? ['wire'] : ['image', 'wire']; }
 
   var PRESETS = [
     { label: '① 완전차단  a=6.0 · λ=2.4a', a: 60, lambda: 144, y0OverA: 0.500 },
@@ -122,7 +126,7 @@
     var dbg = { panels: {} };
 
     ['inc', 'scat', 'tot'].forEach(function (row) {
-      ['image', 'wire'].forEach(function (side) {
+      sidesOf(state.tab).forEach(function (side) {   // 숨긴 열은 그리지 않는다
         var id = 'cv-' + row + '-' + side;
         var opts = (row === 'tot') ? { ruler: rulerS } : {};
         var info = R.drawPanel(ctxOf(id), scenes[side], row, scales[row], state.gamma, state.phase, opts);
@@ -209,9 +213,12 @@
         });
       });
     });
-    var r = dbg.panels['cv-tot-image'].ruler, r2 = dbg.panels['cv-tot-wire'].ruler;
-    L.push('눈금자 ' + rulerS.kind + '  image x[' + r.x0.toFixed(1) + ',' + r.x1.toFixed(1) + ']' +
-           '  wire x[' + r2.x0.toFixed(1) + ',' + r2.x1.toFixed(1) + ']' +
+    // 탭 1·2는 한 열을 그리지 않으므로 그 패널이 dbg.panels 에 없다. 없는 쪽은 건너뛴다.
+    var rul = sidesOf(state.tab).map(function (side) {
+      var p = dbg.panels['cv-tot-' + side];
+      return p && p.ruler ? side + ' x[' + p.ruler.x0.toFixed(1) + ',' + p.ruler.x1.toFixed(1) + ']' : null;
+    }).filter(Boolean).join('  ');
+    L.push('눈금자 ' + rulerS.kind + '  ' + rul +
            '  길이=' + rulerS.len.toFixed(3) + '셀  이론=' + rulerS.theory.toFixed(6));
     L.push('스케일 inc=' + scales.inc.toExponential(4) + ' scat=' + scales.scat.toExponential(4) +
            ' tot=' + scales.tot.toExponential(4));
@@ -388,9 +395,12 @@
     var colWmin = Math.ceil(GEO.Nx / dpr);          // 제약 1
     var availW = main.clientWidth;
 
+    // 열 수 — 탭 1·2는 1열, 탭 3은 2열. 그리드 열은 라벨 1 + nCols 이므로 gap 은 nCols 개.
+    var nCols = sidesOf(state.tab).length;
+
     // 사이드바에 sw 를 남겼을 때 가로가 허용하는 컬럼 폭
     function byWidth(sw) {
-      return Math.floor((availW - sw - GAP_X - LBL_W - 2 * COL_GAP) / 2);
+      return Math.floor((availW - sw - GAP_X - LBL_W - nCols * COL_GAP) / nCols);
     }
     /* 세로 예산은 뷰포트 산술로 낸다 — main.clientHeight 를 쓰면 안 된다.
      * 캡션을 예산에서 제외하고 펼치면 페이지가 아래로 스크롤되게 했으므로,
@@ -407,7 +417,8 @@
     }
     // 캡션 높이는 예산에 넣지 않는다 (②) — 펼쳐도 그리드 크기가 변하지 않는다.
     function byHeight() {
-      var headH = el('head-image').offsetHeight;
+      // 숨긴 열머리는 offsetHeight 0 이므로 보이는 쪽이 그대로 최댓값이 된다
+      var headH = Math.max(el('head-image').offsetHeight, el('head-wire').offsetHeight);
       var rowH = Math.floor((budgetH() - headH - 4 * GAP_Y) / 3);
       return Math.floor(rowH * GEO.Nx / GEO.Ny);
     }
@@ -443,6 +454,7 @@
         } else {
           d.snap = 0;                                 // 축소 — 스냅할 정수 배율이 없다
         }
+        d.nCols = nCols;
         d.rowH = d.colW * GEO.Ny / GEO.Nx;
         // k===0 이어도 colW 는 손대지 않으므로 0이 될 수 없지만, 어떤 경로로도
         // 0·음수·NaN 이 새어 나가지 않게 막고 발생하면 조용히 넘기지 않는다.
@@ -454,7 +466,7 @@
             });
           return null;
         }
-        d.gridW = LBL_W + 2 * d.colW + 2 * COL_GAP;
+        d.gridW = LBL_W + nCols * d.colW + nCols * COL_GAP;
         // 제약 4 — 남는 폭은 사이드바가 흡수하되 상한을 넘지 않는다
         d.sideW = Math.max(d.relaxed ? SIDE_MIN : SIDE_2COL,
                     Math.min(SIDE_MAX, Math.floor(availW - d.gridW - GAP_X)));
@@ -476,7 +488,7 @@
         // ⑤ 남는 폭 안에서 그리드를 가운데로 (왼쪽으로 몰리면 사이드바와 붙어 보인다)
         grid.style.margin = '0 auto';
         var cw = d.colW.toFixed(3), rh = d.rowH.toFixed(3);
-        grid.style.gridTemplateColumns = LBL_W + 'px ' + cw + 'px ' + cw + 'px';
+        grid.style.gridTemplateColumns = LBL_W + 'px ' + (cw + 'px ').repeat(nCols).trim();
         grid.style.gridTemplateRows = 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
       }
       return d;
@@ -569,6 +581,24 @@
     });
   }
 
+  /* ---------------- 탭 (단계 9) ----------------
+   * 탭 1·2는 탭 3에서 한 열을 숨긴 것이다 (v1 §10-1). 렌더러·스케일·마스킹·캡션·
+   * 눈금자가 전부 같고, 슬라이더 상태도 탭을 넘어 유지된다 (v1 §10-0).
+   * 두 Scene 은 탭과 무관하게 항상 계산한다 — 측정값과 읽기값이 탭에 따라
+   * 달라지면 "같은 입력이 양쪽을 동시에 구동한다"는 주장이 깨진다. */
+  function setTab(n) {
+    state.tab = n;
+    var grid = el('compare');
+    grid.classList.toggle('only-image', n === 1);
+    grid.classList.toggle('only-wire', n === 2);
+    // 하단 캡션은 좌우 비교에 대한 문구다 (v1 §10-3) — 단일 열 탭에서는 숨긴다
+    el('footcap').style.display = (n === 3) ? '' : 'none';
+    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+      b.classList.toggle('active', +b.dataset.tab === n);
+    });
+    layout(); markDirty(); drawFrame();
+  }
+
   function init() {
     bind('lambda', function (t) { state.lambda = Math.round(+t.value * 10); });
     bind('aGap',   function (t) { state.a = Math.round(+t.value * 10); });
@@ -591,6 +621,9 @@
     });
     el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
     el('measBtn').addEventListener('click', bench);
+    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+      if (!b.disabled) b.addEventListener('click', function () { setTab(+b.dataset.tab); });
+    });
     // 캡션 접기 — 펼치면 세로를 먹고, 컬럼 폭이 행 높이에서 역산되므로 캔버스가 작아진다
     // 캡션은 레이아웃 예산 밖이다 — 펼치면 그리드 크기가 그대로이고 페이지가 아래로
     // 스크롤된다. 배율 1.000과 pixelated 가 유지되며, 좌우 열 대응도 그대로다.
