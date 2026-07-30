@@ -361,13 +361,26 @@
          * 종횡비를 유지하고 백킹이 Nx×Ny 이므로 가로가 정수면 세로도 자동으로 정수다. */
         d.colWraw = d.colW;
         d.scaleRaw = d.colW * dpr / GEO.Nx;
-        if (d.scaleRaw >= 1) {
-          d.snap = Math.floor(d.scaleRaw);
-          d.colW = d.snap * GEO.Nx / dpr;            // 장치 픽셀로는 정확히 snap×Nx
+        // 경계 허용오차 — 배율이 0.9999999 로 나와 스냅을 건너뛰는 것을 막는다.
+        // 이 화면 100% 줌은 채택 colW 가 바닥과 정확히 일치해 늘 경계에 앉는다.
+        var k = Math.floor(d.scaleRaw + 1e-9);
+        if (k >= 1) {
+          d.snap = k;
+          d.colW = k * GEO.Nx / dpr;                  // 장치 픽셀로는 정확히 k×Nx
         } else {
           d.snap = 0;                                 // 축소 — 스냅할 정수 배율이 없다
         }
         d.rowH = d.colW * GEO.Ny / GEO.Nx;
+        // k===0 이어도 colW 는 손대지 않으므로 0이 될 수 없지만, 어떤 경로로도
+        // 0·음수·NaN 이 새어 나가지 않게 막고 발생하면 조용히 넘기지 않는다.
+        if (!(d.colW > 40) || !(d.rowH > 16) || !isFinite(d.colW) || !isFinite(d.rowH)) {
+          if (typeof console !== 'undefined' && console.error)
+            console.error('[layout] colW/rowH 가 비정상입니다 — 배치를 적용하지 않습니다', {
+              colW: d.colW, rowH: d.rowH, colWraw: d.colWraw, snap: d.snap,
+              dpr: dpr, scaleRaw: d.scaleRaw, byH: d.byH, byW2: d.byW2, byW1: d.byW1
+            });
+          return null;
+        }
         d.gridW = LBL_W + 2 * d.colW + 2 * COL_GAP;
         // 제약 4 — 남는 폭은 사이드바가 흡수하되 상한을 넘지 않는다
         d.sideW = Math.max(d.relaxed ? SIDE_MIN : SIDE_2COL,
@@ -439,7 +452,7 @@
         '  vis ' + document.visibilityState
     ].concat(d ? [
       '실효DPR ' + d.dpr.toFixed(3) + '  (devicePixelRatio 단독 — 줌이 이미 곱해져 있다.' +
-        ' 참고 줌 ' + d.zoom.toFixed(3) + ')',
+        ' outer/inner ' + d.zoom.toFixed(3) + ' 는 표시용이며 계산에 쓰지 않는다)',
       '캔버스 배율 ' + d.scale.toFixed(3) + '  (= colW ' + d.colW.toFixed(1) + ' × 실효DPR ' +
         d.dpr.toFixed(3) + ' / ' + GEO.Nx + ')' +
         (d.scale >= 1 ? '  ✓ 축소 없음' : '  ⚠ 축소 — 벽선(단일 행)이 사라질 수 있음'),
