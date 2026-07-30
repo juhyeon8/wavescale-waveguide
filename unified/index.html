@@ -15,7 +15,7 @@
       <button class="tab" type="button" data-tab="1">탭 1 · 영상법</button>
       <button class="tab" type="button" data-tab="2">탭 2 · 도선 관</button>
       <button class="tab active" type="button" data-tab="3">탭 3 · 나란히 비교</button>
-      <button class="tab" type="button" data-tab="4" disabled title="단계 10에서 구현">탭 4 · 물리 지표</button>
+      <button class="tab" type="button" data-tab="4">탭 4 · 물리 지표</button>
     </span>
     <span id="stageBadge" class="badge"></span>
   </p>
@@ -113,6 +113,37 @@
       <p><b>관 앞뒤</b> — 도선 벽이 없는 자유공간입니다. 영상법은 이 위치에도 벽이 있으므로(무한 평행판),
       같은 자리라도 좌우 비교 대상이 아닙니다.</p>
     </div>
+  </div>
+
+  <!-- ===== 탭 4 — 물리 지표 (A) 표 + (B) 분산 곡선 ===== -->
+  <div class="tab4" id="tab4" style="display:none">
+
+    <div class="t4-table">
+      <table id="metricTable">
+        <thead><tr>
+          <th>모드</th><th>결합</th><th>상태</th><th>Griffiths 이론</th>
+          <th title="정확해를 같은 측정 코드로 잰 값. 100.0%가 아니면 측정 창·코드의 문제입니다">대조군(모드합)</th>
+          <th>영상법</th><th>도선 관</th>
+        </tr></thead>
+        <tbody id="metricBody"></tbody>
+      </table>
+      <div class="t4-note" id="winNote"></div>
+      <p class="capcell">전파 영역에서는 진행 파수 k_z를, 차단 영역에서는 감쇠율 κ를 재어 Griffiths
+      닫힌 해와 비교합니다. 두 방법이 서로 비슷한 것이 아니라, 각각이 같은
+      정확해로 수렴하는 것을 봅니다.</p>
+    </div>
+
+    <div class="t4-chart">
+      <div class="t4-chartbox"><canvas id="cvDisp"></canvas><div id="ptTip" class="pttip"></div></div>
+      <div class="t4-chartfoot">
+        <button id="clearPts" type="button">측정점 지우기</button>
+        <span class="t4-note" id="ptInfo"></span>
+      </div>
+      <p class="capcell">k_z와 κ는 같은 양의 두 얼굴입니다 — k_z² = k² − k_c²가 양수면 진행 파수,
+      음수면 그 크기가 감쇠율입니다. 파장이 길어질수록 모드가 3 → 2 → 1 순서로
+      축 아래로 내려가고, 모두 내려간 뒤가 완전 차단입니다.</p>
+    </div>
+
   </div>
 
 </div>

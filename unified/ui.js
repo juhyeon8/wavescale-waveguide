@@ -37,20 +37,27 @@
     var si = AD.imageScene(Object.assign({}, p, { N: state.N, cesaro: state.cesaro,
                                                   scatBand: state.scatBand }));
     var t1 = performance.now();
+    // 대조군(모드합) — 탭 4의 표에서만 쓴다. 탭 1·2·3에서는 계산하지 않는다.
+    var ss = (state.tab === 4)
+      ? AD.imageScene(Object.assign({}, p, { modeInfinity: true, scatBand: state.scatBand })) : null;
+    var t1b = performance.now();
     var sw = AD.wireScene(Object.assign({}, p, {
       d: currentD(), awAuto: state.awAuto, aw: state.aw }));
     var t2 = performance.now();
 
     scenes = { image: si, wire: sw };
+    if (ss) scenes.sum = ss;
 
     // 측정 — 탭 4가 쓸 값. 여기서 한 번만 재고 캐시한다.
+    // 세 열에 똑같은 함수를 적용한다 (v1 §1-3) — 방법별 분기를 두지 않는다.
     var k = 2 * Math.PI / state.lambda;
     var kmin = M.kappaMinOfCutoff(state.a, k, 3);
+    var keys = ss ? ['sum', 'image', 'wire'] : ['image', 'wire'];
     var meas = [1, 2, 3].map(function (n) {
       var kap = M.theoryKappa(n, state.a, k), kz = M.theoryKz(n, state.a, k);
       var row = { n: n, coupling: M.coupling(n, state.y0OverA), kappa: kap, kz: kz };
-      ['image', 'wire'].forEach(function (key) {
-        var d = key === 'wire' ? currentD() : 1;
+      keys.forEach(function (key) {
+        var d = key === 'wire' ? currentD() : 1;   // resolvable 판정용. 영상법·모드합은 1셀
         row[key] = (kap !== null)
           ? M.measureKappa(scenes[key].tot, state.a, n, GEO.KAPPA_WIN, d, kap)
           : M.measureKz(scenes[key].tot, state.a, n, kz, kmin);
@@ -70,10 +77,12 @@
     }
     rulerS = R.rulerSpec(state.a, state.lambda);
 
-    timing = { image: t1 - t0, wire: t2 - t1, measure: t3 - t2, render: 0, total: 0 };
+    timing = { image: t1 - t0, sum: t1b - t1, wire: t2 - t1b, measure: t3 - t2, render: 0, total: 0 };
     markDirty();
     window.__meas = meas;
+    collectPoints(meas);
     syncReadouts(meas);
+    if (state.tab === 4) updateTable(meas);
     drawFrame();          // rAF를 기다리지 않는다 (창이 숨겨져 있어도 그림이 남는다)
   }
 
@@ -113,7 +122,10 @@
   // rAF는 창이 숨겨지면 아예 실행되지 않는다. 첫 프레임은 기다리지 않고 직접 그린다.
   function render() {
     // 정지 중이고 바뀐 것이 없으면 다시 그리지 않는다 (CPU 절약 + 화면이 안정되어 캡처 가능)
-    if (!scenes || (state.paused && !dirty)) { requestAnimationFrame(render); return; }
+    // 탭 4는 위상 애니메이션이 없다 — 바뀐 것이 없으면 차트를 다시 그리지 않는다
+    if (!scenes || (state.paused && !dirty) || (state.tab === 4 && !dirty)) {
+      requestAnimationFrame(render); return;
+    }
     if (!state.paused) state.phase += state.dPhi;
     drawFrame();
     requestAnimationFrame(render);
@@ -124,6 +136,18 @@
     dirty = false;
     var t0 = performance.now();
     var dbg = { panels: {} };
+
+    if (state.tab === 4) {
+      drawDispersion();
+      timing.render = performance.now() - t0;
+      timing.total = timing.image + timing.sum + timing.wire + timing.measure + timing.render;
+      el('timer').textContent = '계산 시간:  영상법 ' + timing.image.toFixed(0) +
+        (timing.sum > 0.5 ? 'ms · 대조군 ' + timing.sum.toFixed(0) : '') +
+        'ms · 도선관 ' + timing.wire.toFixed(0) + 'ms · 측정 ' + timing.measure.toFixed(0) +
+        'ms · 렌더(차트) ' + timing.render.toFixed(0) + 'ms · 합계 ' + timing.total.toFixed(0) + 'ms';
+      if (DEBUG) dumpDebug(dbg);
+      return;
+    }
 
     ['inc', 'scat', 'tot'].forEach(function (row) {
       sidesOf(state.tab).forEach(function (side) {   // 숨긴 열은 그리지 않는다
@@ -138,9 +162,11 @@
 
     var t1 = performance.now();
     timing.render = t1 - t0;
-    timing.total = timing.image + timing.wire + timing.measure + timing.render;
+    timing.total = timing.image + timing.sum + timing.wire + timing.measure + timing.render;
     el('timer').textContent =
-      '계산 시간:  영상법 ' + timing.image.toFixed(0) + 'ms · 도선관 ' + timing.wire.toFixed(0) +
+      '계산 시간:  영상법 ' + timing.image.toFixed(0) +
+      (timing.sum > 0.5 ? 'ms · 대조군 ' + timing.sum.toFixed(0) : '') +
+      'ms · 도선관 ' + timing.wire.toFixed(0) +
       'ms · 측정 ' + timing.measure.toFixed(0) + 'ms · 렌더 ' + timing.render.toFixed(0) +
       'ms · 합계 ' + timing.total.toFixed(0) + 'ms';
 
@@ -156,6 +182,36 @@
     // ── 배치 실측 (진단) ──
     L.push('── 배치 ──');
     layoutProbe().forEach(function (s) { L.push(s); });
+
+    if (state.tab === 4) {
+      var cv4 = el('cvDisp'), r4 = cv4.getBoundingClientRect();
+      L.push('── 탭 4 (A) 지표 표 ──');
+      L.push('  창: κ = ' + GEO.KAPPA_WIN + ' (' + M.WINDOW_LABEL[GEO.KAPPA_WIN] + ')' +
+             ' · k_z = fitWindowZ · R²_min 0.99');
+      (window.__meas || []).forEach(function (row) {
+        var cut = row.kappa !== null, thy = cut ? row.kappa : row.kz;
+        var f = function (key) {
+          var r = row[key];
+          if (!r) return key + '=—';
+          return key + '=' + (r.value === null ? r.reason
+                 : (r.value / thy * 100).toFixed(2) + '% R²' + (r.r2 === undefined ? '—' : r.r2.toFixed(4)));
+        };
+        L.push('  모드 ' + row.n + '  결합 ' + row.coupling.toExponential(3) +
+               '  ' + (cut ? '차단' : '전파') +
+               '  이론 ' + thy.toFixed(7) + '/셀 = ' + (thy * 10).toFixed(4) + '/cm  |  ' +
+               f('sum') + '  ' + f('image') + '  ' + f('wire'));
+      });
+      L.push('── 탭 4 (B) 분산 곡선 ──');
+      L.push('  문턱 λ/a = 2/n : 모드1 ' + (2 / 1).toFixed(3) + ' · 모드2 ' + (2 / 2).toFixed(3) +
+             ' · 모드3 ' + (2 / 3).toFixed(3) + '   축 범위 u[' + U0 + ',' + U1 + '] y[' + Y0 + ',' + Y1 + ']');
+      L.push('  측정점 ' + pts.length + '개 / 상한 ' + PT_MAX +
+             (pts.length >= PT_MAX ? ' (상한 도달)' : ' (미도달)') + ' · 범위 밖 ' + ptsOut + '개' +
+             ' · 현재 λ/a = ' + (state.lambda / state.a).toFixed(3));
+      L.push('  차트 캔버스 백킹 ' + cv4.width + '×' + cv4.height +
+             ' · 표시 ' + r4.width.toFixed(0) + '×' + r4.height.toFixed(0) +
+             ' · DPR ' + window.devicePixelRatio + ' (표시×DPR 방식, 정수 스냅 미적용)');
+    }
+
     L.push('── 장 ──');
 
     var qi = scenes.image.quality;
@@ -228,6 +284,211 @@
     L.push('품질 image ' + JSON.stringify(scenes.image.quality));
     L.push('품질 wire  ' + JSON.stringify(scenes.wire.quality));
     el('debugout').textContent = L.join('\n');
+  }
+
+  /* ================= 탭 4 (A) 지표 표 =================
+   * 네 열이다 — Griffiths 이론(닫힌 공식, 측정 없음) · 대조군(모드합, 정확해 장을
+   * 같은 측정 코드로 잰 값) · 영상법 · 도선 관.
+   * 앞의 둘은 다른 것이다. 모드합이 100.0%가 아니면 그것은 방법이 아니라
+   * 측정 창·코드의 문제라는 뜻이고, 그때 다른 두 열의 실패를 방법 탓으로
+   * 돌릴 수 없게 해 준다. 측정 함수는 measure.js 한 벌을 호출만 한다 (v1 §1-3). */
+  var MODE_COL = { 1: '#4a90d9', 2: '#3fb56b', 3: '#e8913a' };   // graph.js 규약 재사용
+  var perCm = function (perCell) { return perCell * 10; };        // 셀(=mm) → /cm
+
+  function cellFor(r, thy) {
+    if (!r) return { text: '—', cls: 'na' };
+    if (r.value === null) return { text: r.reason, cls: 'na' };
+    var ratio = r.value / thy;
+    var txt = (ratio * 100).toFixed(1) + '%  R² ' + (r.r2 === undefined ? '—' : r.r2.toFixed(4));
+    // R²가 높아도 5%를 넘으면 칠한다 — R²는 계통 편향을 잡지 못한다 (설계 §11-8)
+    return { text: txt, cls: Math.abs(ratio - 1) > 0.05 ? 'bad' : 'hi', ratio: ratio };
+  }
+
+  function updateTable(meas) {
+    var k = 2 * Math.PI / state.lambda, body = el('metricBody');
+    body.innerHTML = '';
+    meas.forEach(function (row) {
+      var tr = document.createElement('tr');
+      var cut = (row.kappa !== null);
+      var cells = [
+        { text: String(row.n), cls: 'mode' },
+        { text: row.coupling.toFixed(3), cls: '' },
+        { text: cut ? '차단' : '전파', cls: 'mode' }
+      ];
+      if (row.coupling < 0.02) {
+        // 나머지 칸 대신 한 칸으로 (v1 §10-4)
+        cells.push({ text: '여기되지 않음(마디 위치)', cls: 'na', span: 4 });
+      } else {
+        var thy = cut ? row.kappa : row.kz;
+        // /cm 로 표시하고 대응 길이를 병기한다 — 탭 3 눈금자(v1 §9-4)와 같은 숫자여야
+        // 눈으로 본 것과 잰 숫자가 연결된다. 셀 단위는 ?debug=1 에만 둔다.
+        cells.push({ text: cut
+          ? 'κ = ' + perCm(row.kappa).toFixed(4) + ' /cm   (감쇠길이 1/κ = ' + (1 / row.kappa / 10).toFixed(1) + ' cm)'
+          : 'k_z = ' + perCm(row.kz).toFixed(4) + ' /cm   (λ_g = ' + (2 * Math.PI / row.kz / 10).toFixed(1) + ' cm)',
+          cls: '' });
+        ['sum', 'image', 'wire'].forEach(function (key) {
+          var c = cellFor(row[key], thy);
+          // 대조군은 100.0% 가 정상이라 정보가 없다 → 흐리게. 벗어나면 강조된다.
+          if (key === 'sum' && c.ratio !== undefined && Math.abs(c.ratio - 1) < 0.0005) c.cls = 'dim';
+          cells.push(c);
+        });
+      }
+      cells.forEach(function (c) {
+        var td = document.createElement('td');
+        td.textContent = c.text; td.className = c.cls || '';
+        if (c.span) td.colSpan = c.span;
+        if (c.cls === 'mode' && cells[0] === c) td.style.color = MODE_COL[row.n];
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+
+    var kmin = M.kappaMinOfCutoff(state.a, k, 3);
+    var wz = M.kzWindow(kmin);
+    el('winNote').textContent =
+      '측정 창 — 차단 κ: ' + M.WINDOW_LABEL[GEO.KAPPA_WIN] + '  ·  전파 k_z: fitWindowZ [' +
+      wz.zStart.toFixed(1) + ', ' + wz.zEnd.toFixed(1) + '] 셀   |   R² 가드 0.99, 오차 5% 초과 시 경고색';
+  }
+
+  /* ================= 탭 4 (B) 분산 곡선 =================
+   * 가로 u = λ/a, 세로 = k_c1(=π/a)로 나눈 값. 축 위 k_z, 축 아래 κ.
+   *   y(u, n) = √((2/u)² − n²)   진행 파수      (2/u > n)
+   *           = −√(n² − (2/u)²)  감쇠율의 크기  (2/u < n)
+   * u 에만 의존하므로 a 에 무관하다 — 서로 다른 a 에서 잰 점이 한 곡선에 모인다.
+   * 그래서 a·y₀ 변경 시 자동 삭제하지 않는다 (설계 §9-4). */
+  var U0 = 0.6, U1 = 3.0, Y0 = -3.1, Y1 = 3.4, PT_MAX = 200;
+  var pts = [], ptsOut = 0;
+
+  function yOf(u, n) {
+    var r = 2 / u, s = r * r - n * n;
+    return s >= 0 ? Math.sqrt(s) : -Math.sqrt(-s);
+  }
+
+  function collectPoints(meas) {
+    var u = state.lambda / state.a;
+    ptsOut = 0;
+    meas.forEach(function (row) {
+      ['image', 'wire'].forEach(function (key) {          // 모드합은 찍지 않는다
+        var r = row[key];
+        if (!r || r.value === null) return;               // 측정 불가는 빈칸으로 남긴다
+        if (u < U0 || u > U1) { ptsOut++; return; }
+        var kc1 = Math.PI / state.a;
+        var y = (row.kappa !== null ? -r.value : r.value) / kc1;
+        var kk = key + '|' + row.n + '|' + Math.round(u / 0.005);
+        var i = pts.findIndex(function (p) { return p.key === kk; });
+        var p = { key: kk, u: u, y: y, n: row.n, method: key,
+                  a: state.a, y0OverA: state.y0OverA };
+        if (i >= 0) pts[i] = p; else pts.push(p);         // 왕복해도 상한이 차지 않는다
+      });
+    });
+    while (pts.length > PT_MAX) pts.shift();
+  }
+
+  function fitChart() {
+    var cv = el('cvDisp'), dpr = window.devicePixelRatio || 1;
+    var r = cv.getBoundingClientRect();
+    var w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    return dpr;
+  }
+
+  var chartBox = null;
+  function drawDispersion() {
+    var cv = el('cvDisp');
+    if (!cv.getBoundingClientRect().width) return;
+    var dpr = fitChart(), ctx = cv.getContext('2d');
+    var W = cv.width, H = cv.height;
+    var padL = 46 * dpr, padR = 14 * dpr, padT = 12 * dpr, padB = 30 * dpr;
+    var X = function (u) { return padL + (u - U0) / (U1 - U0) * (W - padL - padR); };
+    var Y = function (y) { return padT + (Y1 - y) / (Y1 - Y0) * (H - padT - padB); };
+    chartBox = { X: X, Y: Y, dpr: dpr };
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = (11 * dpr) + 'px sans-serif';
+
+    // 격자
+    ctx.lineWidth = 1 * dpr; ctx.strokeStyle = '#1b2140';
+    for (var u = 1.0; u <= U1 + 1e-9; u += 0.5) {
+      ctx.beginPath(); ctx.moveTo(X(u), padT); ctx.lineTo(X(u), H - padB); ctx.stroke();
+    }
+    for (var yv = -3; yv <= 3; yv++) {
+      ctx.beginPath(); ctx.moveTo(padL, Y(yv)); ctx.lineTo(W - padR, Y(yv)); ctx.stroke();
+    }
+    ctx.strokeStyle = '#2a3050'; ctx.strokeRect(padL, padT, W - padL - padR, H - padT - padB);
+
+    // y=0 축 — 위는 전파, 아래는 차단
+    ctx.strokeStyle = '#aab2cf'; ctx.lineWidth = 1.6 * dpr;
+    ctx.beginPath(); ctx.moveTo(padL, Y(0)); ctx.lineTo(W - padR, Y(0)); ctx.stroke();
+
+    ctx.fillStyle = '#8892b5'; ctx.textAlign = 'right';
+    for (var yl = -3; yl <= 3; yl++) ctx.fillText(String(yl), padL - 6 * dpr, Y(yl) + 4 * dpr);
+    ctx.textAlign = 'center';
+    for (var ul = 1.0; ul <= U1 + 1e-9; ul += 0.5) ctx.fillText(ul.toFixed(1), X(ul), H - padB + 15 * dpr);
+    ctx.fillText('λ/a', (padL + W - padR) / 2, H - padB + 28 * dpr);
+    ctx.save(); ctx.translate(12 * dpr, (padT + H - padB) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('축 위 k_z / k_c1   ·   축 아래 κ / k_c1', 0, 0); ctx.restore();
+
+    // 이론 곡선 3개 — 공식이라 비용 0
+    [1, 2, 3].forEach(function (n) {
+      ctx.strokeStyle = MODE_COL[n]; ctx.lineWidth = 1.8 * dpr;
+      ctx.beginPath();
+      for (var i = 0, first = true; i <= 400; i++) {
+        var uu = U0 + (U1 - U0) * i / 400, yy = yOf(uu, n);
+        if (yy < Y0 || yy > Y1) { first = true; continue; }
+        if (first) { ctx.moveTo(X(uu), Y(yy)); first = false; } else ctx.lineTo(X(uu), Y(yy));
+      }
+      ctx.stroke();
+      // 문턱 — 모드 n 은 λ/a = 2/n 에서 축을 가로지른다 (2.0 / 1.0 / 0.667)
+      var ut = 2 / n;
+      if (ut >= U0 && ut <= U1) {
+        ctx.setLineDash([5 * dpr, 4 * dpr]); ctx.lineWidth = 1.2 * dpr;
+        ctx.beginPath(); ctx.moveTo(X(ut), padT); ctx.lineTo(X(ut), H - padB); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = MODE_COL[n]; ctx.textAlign = 'left';
+        ctx.fillText('모드 ' + n, X(ut) + 4 * dpr, padT + 12 * dpr * n);
+      }
+    });
+
+    // 측정점 — 영상법 채운 원, 도선관 속 빈 사각형 (사각형이 원을 감싸도록 뒤에 그린다)
+    var uNow = state.lambda / state.a;
+    pts.forEach(function (p) {
+      if (p.y < Y0 || p.y > Y1) return;
+      var x = X(p.u), y = Y(p.y), cur = Math.abs(p.u - uNow) < 0.005;
+      ctx.lineWidth = (cur ? 2.2 : 1.3) * dpr;
+      if (p.method === 'wire') {
+        ctx.strokeStyle = cur ? '#fff' : MODE_COL[p.n];
+        var s = (cur ? 6 : 4.5) * dpr;
+        ctx.strokeRect(x - s, y - s, 2 * s, 2 * s);
+      } else {
+        ctx.fillStyle = MODE_COL[p.n];
+        ctx.beginPath(); ctx.arc(x, y, (cur ? 4 : 2.8) * dpr, 0, 6.2832); ctx.fill();
+        if (cur) { ctx.strokeStyle = '#fff'; ctx.stroke(); }
+      }
+    });
+
+    el('ptInfo').textContent = '측정점 ' + pts.length + '개 / 상한 ' + PT_MAX +
+      (pts.length >= PT_MAX ? ' (상한 도달 — 오래된 것부터 제거)' : '') +
+      (ptsOut ? '  ·  범위 밖 ' + ptsOut + '개' : '') +
+      '  ·  영상법 ● / 도선관 □';
+  }
+
+  function chartTip(ev) {
+    var cv = el('cvDisp'), tip = el('ptTip');
+    if (!chartBox) return;
+    var r = cv.getBoundingClientRect();
+    var mx = (ev.clientX - r.left) * chartBox.dpr, my = (ev.clientY - r.top) * chartBox.dpr;
+    var best = null, bd = 12 * chartBox.dpr;
+    pts.forEach(function (p) {
+      var d = Math.hypot(chartBox.X(p.u) - mx, chartBox.Y(p.y) - my);
+      if (d < bd) { bd = d; best = p; }
+    });
+    if (!best) { tip.style.display = 'none'; return; }
+    tip.style.display = '';
+    tip.textContent = 'a=' + (best.a / 10).toFixed(1) + 'cm · λ/a=' + best.u.toFixed(3) +
+      ' · y₀/a=' + best.y0OverA.toFixed(3) + ' · 모드 ' + best.n +
+      ' · ' + (best.method === 'image' ? '영상법' : '도선 관');
+    tip.style.left = (chartBox.X(best.u) / chartBox.dpr) + 'px';
+    tip.style.top = (chartBox.Y(best.y) / chartBox.dpr) + 'px';
   }
 
   /* ---------------- 측정 버튼 (상시 기능, ?debug=1 무관) ----------------
@@ -388,6 +649,15 @@
       side.style.flex = ''; side.classList.remove('wide');
       el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
       layoutLog.fallback++; layoutLog.d = null;
+      return;
+    }
+
+    // 탭 4는 필드 캔버스가 없다. 차트는 표시 크기 × DPR 로 백킹을 맞추는
+    // 별도 규칙을 쓴다 (원본 script.js:fitGraph) — 정수 스냅을 적용하지 않는다.
+    if (state.tab === 4) {
+      el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
+      fitChart(); markDirty();
+      layoutLog.applied++; layoutLog.d = null;
       return;
     }
 
@@ -587,16 +857,21 @@
    * 두 Scene 은 탭과 무관하게 항상 계산한다 — 측정값과 읽기값이 탭에 따라
    * 달라지면 "같은 입력이 양쪽을 동시에 구동한다"는 주장이 깨진다. */
   function setTab(n) {
+    var was = state.tab;
     state.tab = n;
     var grid = el('compare');
     grid.classList.toggle('only-image', n === 1);
     grid.classList.toggle('only-wire', n === 2);
-    // 하단 캡션은 좌우 비교에 대한 문구다 (v1 §10-3) — 단일 열 탭에서는 숨긴다
+    grid.style.display = (n === 4) ? 'none' : '';
+    el('tab4').style.display = (n === 4) ? '' : 'none';
+    // 하단 캡션은 좌우 비교에 대한 문구다 (v1 §10-3) — 다른 탭에서는 숨긴다
     el('footcap').style.display = (n === 3) ? '' : 'none';
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
       b.classList.toggle('active', +b.dataset.tab === n);
     });
-    layout(); markDirty(); drawFrame();
+    layout(); markDirty();
+    // 탭 4로 처음 들어오면 대조군(모드합) Scene 이 없다 → 재계산해서 채운다
+    if (n === 4 && was !== 4) recompute(); else drawFrame();
   }
 
   function init() {
@@ -624,6 +899,11 @@
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
       if (!b.disabled) b.addEventListener('click', function () { setTab(+b.dataset.tab); });
     });
+    // 자동 삭제는 두지 않는다 — 정규화 축에서 곡선은 a 에 무관하고, 프리셋이 a 를
+    // 바꾸므로 자동 삭제를 두면 프리셋을 누를 때마다 점이 날아간다 (설계 §9-4).
+    el('clearPts').addEventListener('click', function () { pts = []; markDirty(); });
+    el('cvDisp').addEventListener('mousemove', chartTip);
+    el('cvDisp').addEventListener('mouseleave', function () { el('ptTip').style.display = 'none'; });
     // 캡션 접기 — 펼치면 세로를 먹고, 컬럼 폭이 행 높이에서 역산되므로 캔버스가 작아진다
     // 캡션은 레이아웃 예산 밖이다 — 펼치면 그리드 크기가 그대로이고 페이지가 아래로
     // 스크롤된다. 배율 1.000과 pixelated 가 유지되며, 좌우 열 대응도 그대로다.

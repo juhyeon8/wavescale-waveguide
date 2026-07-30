@@ -115,6 +115,31 @@ button:hover { background:#252d54; }
 body.capopen { height:auto; min-height:100%; overflow-y:auto; }
 body.capopen .sidebar-scroll { overflow:visible; }
 
+/* ---- 탭 4 — (A) 지표 표 + (B) 분산 곡선 ----
+   (B)는 선 그래프라 필드 캔버스가 아니다. 백킹 520×220 고정·정수 스냅을 쓰지 않고
+   원본 script.js:fitGraph 방식(표시 크기 × DPR)에 image-rendering:auto 를 쓴다. */
+.tab4 { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:10px; }
+.t4-table { flex:0 0 auto; }
+#metricTable { border-collapse:collapse; width:100%; font-size:0.76rem; }
+#metricTable th, #metricTable td { border:1px solid var(--line); padding:5px 9px; text-align:left;
+  white-space:nowrap; }
+#metricTable th { background:#161c30; color:#d6dcf7; font-weight:600; }
+#metricTable td { font-family:Consolas,"D2Coding",monospace; }
+#metricTable td.mode { font-family:inherit; color:#d6dcf7; }
+#metricTable td.dim  { color:#5d6685; }          /* 대조군 100.0% = 정상 → 흐리게 */
+#metricTable td.hi   { color:#e8ebf5; font-weight:600; }
+#metricTable td.bad  { background:#3a2a2a; color:#ffb3b3; }   /* 오차 5% 초과 (v1 §10-4) */
+#metricTable td.na   { color:#8892b5; font-family:inherit; }
+.t4-note { font-size:0.7rem; color:var(--mut); margin-top:5px; }
+.t4-chart { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.t4-chartbox { flex:1 1 auto; min-height:0; position:relative; }
+.t4-chartbox canvas { width:100%; height:100%; display:block; image-rendering:auto;
+  background:#10152a; border:1px solid var(--line); border-radius:6px; }
+.t4-chartfoot { flex:0 0 auto; display:flex; align-items:center; gap:10px; margin-top:6px; }
+.pttip { position:absolute; display:none; pointer-events:none; z-index:5;
+  background:#1b2140; border:1px solid #3a4270; border-radius:5px; padding:4px 8px;
+  font-size:0.68rem; color:var(--fg); white-space:nowrap; transform:translate(-50%,-130%); }
+
 .footcap { flex:0 0 auto; margin:8px 0 0; font-size:0.74rem; line-height:1.5; color:var(--mut);
   border-top:1px solid var(--line); padding-top:7px; }
 
