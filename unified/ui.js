@@ -279,11 +279,33 @@
    *   컬럼 폭 = 행 높이 × Nx/Ny
    * 캡션 높이는 컬럼 폭에 의존하므로(줄바꿈) 2회 반복해 수렴시킨다.
    * 남는 가로 폭은 사이드바가 전부 흡수한다 (.sidebar flex:1 1 auto). */
-  var GAP_Y = 8, LBL_W = 56, SIDEBAR_2COL = 560;
+  /* ---------------- 배치 ----------------
+   * 캔버스를 축소 표시하면 안 된다. image-rendering: pixelated 는 최근접 샘플링이라
+   * 배율이 1 미만이면 소스 행이 통째로 버려지고 1px 벽선이 점선으로 끊긴다.
+   * 벽은 이 시뮬의 인과 서술(경계조건 → 유도 전류/산란파 → 장)의 출발점이므로
+   * 미적 문제가 아니다. 표현 방식(pixelated)을 바꾸는 대신 축소 자체를 막는다.
+   *
+   * 제약 순서 (위가 우선)
+   *   1  colW × 실효DPR ≥ Nx        절대 바닥. 축소 금지
+   *   2  rowH × 실효DPR ≥ Ny        종횡비를 유지하므로 1과 동시 충족
+   *   3  사이드바 ≥ SIDE_2COL       2열 유지 (가능할 때)
+   *   4  사이드바 상한 SIDE_MAX     남는 폭을 무한 흡수하지 않게
+   *   5  더 큰 캔버스
+   *
+   * 1을 만족시킬 수 없으면 세로를 확보한다: (a) 진단 패널은 이미 흐름 밖,
+   * (b) 캡션 접기, (c) — , (d) 사이드바 1열. 그래도 안 되면 축소하고 경고를 찍는다.
+   *
+   * 실효DPR = devicePixelRatio 하나다. Chrome의 devicePixelRatio 에는 이미 줌이
+   * 곱해져 있다 (이 PC: 100%→1.25, 80%→1.0). outer/inner 는 줌 표시용이다. */
+  var GAP_Y = 8, GAP_X = 14, COL_GAP = 10, LBL_W = 56;
+  var SIDE_MIN = 340;                       // style.css 의 .sidebar min-width
+  var SIDE_2COL = 560;                      // 2열로 바뀌는 문턱
+  var SIDE_MAX = 2 * SIDE_MIN + 12;         // 2열 × 1열 최소폭 + 내부 gap = 692
 
-  // 계측 전용 — layout()이 언제·어떤 크기에서 무엇을 계산했는지 남긴다.
-  // 진단이 끝날 때까지 계산식과 CSS는 건드리지 않는다.
-  var layoutLog = { calls: 0, applied: 0, fallback: 0, lastMain: '—', rowH: null, colW: null, gridW: null };
+  var layoutLog = { calls: 0, applied: 0, fallback: 0, lastMain: '—' };
+
+  function effDpr() { return window.devicePixelRatio || 1; }
+  function zoomOf() { return window.outerWidth ? window.outerWidth / window.innerWidth : 1; }
 
   function layout() {
     layoutLog.calls++;
@@ -293,29 +315,83 @@
 
     if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
       grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = '';
-      side.classList.remove('wide');
-      layoutLog.fallback++;
-      layoutLog.rowH = layoutLog.colW = layoutLog.gridW = null;
+      side.style.flex = ''; side.classList.remove('wide');
+      layoutLog.fallback++; layoutLog.d = null;
       return;
     }
-    for (var pass = 0; pass < 2; pass++) {
-      var headH = el('head-image').offsetHeight;
-      var capH = Math.max(el('cap-image').offsetHeight, el('cap-wire').offsetHeight);
-      var rowH = Math.floor((main.clientHeight - headH - capH - 4 * GAP_Y) / 3);
-      if (!(rowH > 40)) return;
-      var colW = Math.round(rowH * GEO.Nx / GEO.Ny);
-      grid.style.gridTemplateColumns = LBL_W + 'px ' + colW + 'px ' + colW + 'px';
-      grid.style.gridTemplateRows = 'auto ' + rowH + 'px ' + rowH + 'px ' + rowH + 'px auto';
-      layoutLog.rowH = rowH; layoutLog.colW = colW; layoutLog.gridW = LBL_W + 2 * colW;
+
+    var dpr = effDpr();
+    var colWmin = Math.ceil(GEO.Nx / dpr);          // 제약 1
+    var availW = main.clientWidth;
+
+    // 사이드바에 sw 를 남겼을 때 가로가 허용하는 컬럼 폭
+    function byWidth(sw) {
+      return Math.floor((availW - sw - GAP_X - LBL_W - 2 * COL_GAP) / 2);
     }
+    // 세로가 허용하는 컬럼 폭 (캡션 높이는 컬럼 폭에 의존하므로 호출부에서 반복 수렴)
+    function byHeight() {
+      var headH = el('head-image').offsetHeight;
+      var capH = grid.classList.contains('capfold') ? 0
+               : Math.max(el('cap-image').offsetHeight, el('cap-wire').offsetHeight);
+      var rowH = Math.floor((main.clientHeight - headH - capH - 4 * GAP_Y) / 3);
+      return Math.floor(rowH * GEO.Nx / GEO.Ny);
+    }
+
+    // 캡션 높이가 컬럼 폭에 의존하므로(줄바꿈) 2회 반복해 수렴시킨다.
+    function solve() {
+      var d = { dpr: dpr, zoom: zoomOf(), colWmin: colWmin };
+      for (var pass = 0; pass < 2; pass++) {
+        d.byH = byHeight();
+        d.byW2 = byWidth(SIDE_2COL);
+        d.byW1 = byWidth(SIDE_MIN);
+
+        d.relaxed = false;                           // 제약 3(2열)을 포기했는가
+        d.colW = Math.min(d.byH, d.byW2);
+        if (d.colW < colWmin && d.byW1 > d.byW2) {   // (d) 2열을 포기하면 가로가 트인다
+          d.relaxed = true;
+          d.colW = Math.min(d.byH, d.byW1);
+        }
+        if (!(d.colW > 40)) return null;
+
+        d.rowH = Math.round(d.colW * GEO.Ny / GEO.Nx);
+        d.gridW = LBL_W + 2 * d.colW + 2 * COL_GAP;
+        // 제약 4 — 남는 폭은 사이드바가 흡수하되 상한을 넘지 않는다
+        d.sideW = Math.max(d.relaxed ? SIDE_MIN : SIDE_2COL,
+                    Math.min(SIDE_MAX, availW - d.gridW - GAP_X));
+        d.twoCol = d.sideW >= SIDE_2COL;             // 실제로 2열이 되었는가
+        d.scale = d.colW * dpr / GEO.Nx;
+        d.shrink = d.colW < colWmin;                 // 축소 불가피
+
+        side.style.flex = '0 0 ' + d.sideW + 'px';
+        side.classList.toggle('wide', d.twoCol);
+        grid.style.gridTemplateColumns = LBL_W + 'px ' + d.colW + 'px ' + d.colW + 'px';
+        grid.style.gridTemplateRows = 'auto ' + d.rowH + 'px ' + d.rowH + 'px ' + d.rowH + 'px auto';
+      }
+      return d;
+    }
+
+    // (c) 제목·캡션 여백 압축 — 축소가 불가피할 때만 켠다.
+    // 판정은 항상 tight OFF 상태에서 시작해 결정론적으로 내린다 (켰다 껐다 진동 방지).
+    var body = document.body;
+    body.classList.remove('tight');
+    var d = solve();
+    if (d && d.shrink) {
+      body.classList.add('tight');
+      var d2 = solve();
+      if (d2 && d2.colW > d.colW) d = d2;
+      else { body.classList.remove('tight'); d = solve(); }
+    }
+    if (!d) return;
+    d.tight = body.classList.contains('tight');
     layoutLog.applied++;
-    side.classList.toggle('wide', side.clientWidth >= SIDEBAR_2COL);
+    layoutLog.d = d;
   }
 
   // ?debug=1 배치 실측 — 계산값과 실제로 화면이 준 폭을 나란히 놓는다.
   function layoutProbe() {
     var main = document.querySelector('.app-main'), side = el('sidebar'), grid = el('compare');
     if (!main) return [];
+    var d = layoutLog.d;
     return [
       'app-main:  clientWidth ' + main.clientWidth + ' clientHeight ' + main.clientHeight,
       'sidebar:   offsetWidth ' + side.offsetWidth + ' scrollWidth ' + side.scrollWidth +
@@ -325,14 +401,26 @@
         '  넘침 ' + (grid.scrollWidth > grid.offsetWidth ? '있음' : '없음') +
         '  실제 캔버스폭 ' + el('cv-tot-image').getBoundingClientRect().width.toFixed(1) +
         ' 높이 ' + el('cv-tot-image').getBoundingClientRect().height.toFixed(1),
-      '계산값:    rowH ' + layoutLog.rowH + ' colW ' + layoutLog.colW + ' gridW ' + layoutLog.gridW +
-        '  (합 = 사이드바 최소 340 + gap 14 + gridW)',
       'layout():  호출 ' + layoutLog.calls + '회 (적용 ' + layoutLog.applied + ' · 폴백 ' + layoutLog.fallback +
         ') · 마지막 호출 시점의 app-main ' + layoutLog.lastMain,
       '창:        viewport ' + window.innerWidth + 'x' + window.innerHeight +
-        '  DPR ' + window.devicePixelRatio + '  outer/inner ' + (window.outerWidth / window.innerWidth).toFixed(4) +
+        '  DPR ' + window.devicePixelRatio + '  outer/inner ' + zoomOf().toFixed(4) +
         '  vis ' + document.visibilityState
-    ];
+    ].concat(d ? [
+      '실효DPR ' + d.dpr.toFixed(3) + '  (devicePixelRatio 단독 — 줌이 이미 곱해져 있다.' +
+        ' 참고 줌 ' + d.zoom.toFixed(3) + ')',
+      '캔버스 배율 ' + d.scale.toFixed(3) + '  (= colW ' + d.colW + ' × 실효DPR ' + d.dpr.toFixed(3) +
+        ' / ' + GEO.Nx + ')' + (d.scale >= 1 ? '  ✓ 축소 없음' : '  ⚠ 축소 — 벽선이 끊길 수 있음'),
+      '제약 판정: 가로 ' + (d.relaxed ? d.byW1 : d.byW2) + ' / 세로 ' + d.byH +
+        ' / 사이드바 2열 ' + (d.twoCol ? 'ON' : 'OFF') + '(' + d.sideW + ')' +
+        ' / 채택 colW ' + d.colW + '  (바닥 ' + d.colWmin + ')',
+      '           바인딩 = ' + (d.colW === d.byH ? '세로' : '가로') +
+        ' · 캡션 ' + (el('compare').classList.contains('capfold') ? '접힘' : '펼침') +
+        ' · 압축(c) ' + (d.tight ? 'ON' : 'OFF') +
+        ' · 2열예약포기(d) ' + (d.relaxed ? 'ON' : 'OFF') +
+        ' · rowH ' + d.rowH + ' gridW ' + d.gridW +
+        ' · 가로 여유 ' + (main.clientWidth - d.gridW - GAP_X - d.sideW)
+    ] : ['제약 판정: (폴백 배치 — CSS에 맡김)']);
   }
 
   /* ---------------- 입력 ---------------- */
@@ -374,6 +462,16 @@
     });
     el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
     el('measBtn').addEventListener('click', bench);
+    // 캡션 접기 — 펼치면 세로를 먹고, 컬럼 폭이 행 높이에서 역산되므로 캔버스가 작아진다
+    el('capBtn').addEventListener('click', function () {
+      var on = el('compare').classList.toggle('capfold');
+      el('capBtn').textContent = on ? '캡션 ▸' : '캡션 ▾';
+      layout(); markDirty();
+    });
+    el('dbgBtn').addEventListener('click', function () {
+      var on = el('debugbox').classList.toggle('folded');
+      el('dbgBtn').textContent = on ? '?debug=1 ▸' : '?debug=1 ▾';
+    });
     // 벽 사이 제한 대조 토글 — ?debug=1 에서만 노출한다 (평소엔 켜 둔 채로 쓴다)
     el('scatAll').addEventListener('change', function (e) { state.scatBand = !e.target.checked; recompute(); });
     el('pauseBtn').addEventListener('click', function () {
@@ -403,6 +501,7 @@
       });
     });
 
+    el('compare').classList.add('capfold');      // 캡션 기본 접힘
     if (DEBUG) { el('debugbox').style.display = ''; el('scatAllRow').style.display = ''; }
     el('nImg').max = GEO.N_MAX;
     el('scatAll').checked = !state.scatBand;

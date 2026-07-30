@@ -87,8 +87,10 @@
     <div class="panel"><canvas id="cv-tot-image"></canvas></div>
     <div class="panel"><canvas id="cv-tot-wire"></canvas></div>
 
-    <!-- 캡션 행 — 열 단위. §8-3의 세 문구를 그대로 쓴다. -->
-    <div class="rlabel"></div>
+    <!-- 캡션 행 — 열 단위. §8-3의 세 문구를 그대로 쓴다.
+         기본 접힘: 정지 텍스트라 한 번 읽으면 되고, 세 캔버스 행이 함께 보이는 것이
+         비교의 핵심이다. 펼치면 그만큼 캔버스가 작아진다(배치 제약 1 참조). -->
+    <div class="rlabel"><button id="capBtn" class="capbtn" type="button">캡션 ▸</button></div>
     <div class="capcell" id="cap-image">
       <p>영상 합은 벽 사이에서만 해를 재현합니다. 무한히 뻗은 도체판 바깥의 참값은 0이지만,
       유한 개의 영상 합은 그 0을 만들지 못합니다. 그래서 이 영역은 표시하지 않습니다.</p>
@@ -106,7 +108,13 @@
 <p class="footcap">관 내부는 두 방법이 같은 양상을 보입니다. 관의 앞뒤와 도선 벽 바깥이 다른 것은,
 영상법이 무한 평행판을 다루고 도선 관은 유한하며 양 끝이 열려 있기 때문입니다.</p>
 
-<div id="debugbox" style="display:none"><h2>?debug=1</h2><pre id="debugout"></pre></div>
+<!-- 진단 패널은 문서 흐름 밖에 둔다. 흐름 안에 있으면 세로 198px를 먹고,
+     배치가 컬럼 폭을 행 높이에서 역산하므로 그 손실이 가로로 증폭된다
+     — 진단 도구가 진단 대상을 바꾸게 된다. -->
+<div id="debugbox" class="folded" style="display:none">
+  <button id="dbgBtn" type="button">?debug=1 ▸</button>
+  <pre id="debugout"></pre>
+</div>
 
 <!-- ===== 네임스페이스 격리 (v1 §3) — 이 순서를 정확히 이대로 쓴다 ===== -->
 <script>window.WG = {};</script>

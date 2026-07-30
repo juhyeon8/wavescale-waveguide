@@ -87,12 +87,27 @@ button:hover { background:#252d54; }
 .capcell { font-size:0.68rem; line-height:1.45; color:#7e879e; }
 .capcell p { margin:0 0 4px; }
 .capcell p:last-child { margin-bottom:0; }
+/* 캡션 접기 — 접히면 캔버스 세로가 그만큼 늘고, 컬럼 폭이 함께 커진다 */
+.capbtn { font-size:0.68rem; padding:2px 6px; }
+.compare.capfold .capcell { display:none; }
 
 .footcap { flex:0 0 auto; margin:8px 0 0; font-size:0.74rem; line-height:1.5; color:var(--mut);
   border-top:1px solid var(--line); padding-top:7px; }
 
-#debugbox { flex:0 0 auto; max-height:190px; overflow:auto; margin-top:8px; }
-#debugbox h2 { font-size:0.78rem; margin:0 0 4px; color:var(--mut); }
+/* (c) 세로 압축 — 캔버스가 백킹보다 작아질 때만 layout()이 켠다. 문구는 그대로 두고 여백만 줄인다. */
+body.tight { padding-top:8px; padding-bottom:8px; }
+body.tight h1 { font-size:1.02rem; margin-bottom:1px; }
+body.tight .sub { margin-bottom:5px; }
+body.tight .footcap { margin-top:5px; padding-top:5px; line-height:1.4; }
+
+/* 진단 패널 — 문서 흐름 밖(고정 오버레이). 펼쳐도 배치에 영향을 주지 않는다. */
+#debugbox { position:fixed; right:10px; bottom:10px; z-index:50;
+  width:min(780px, 48vw); max-height:64vh; overflow:auto;
+  background:rgba(16,21,42,0.97); border:1px solid var(--line); border-radius:8px;
+  padding:6px 8px; box-shadow:0 6px 20px rgba(0,0,0,0.45); }
+#debugbox.folded { width:auto; max-height:none; overflow:visible; }
+#debugbox.folded pre { display:none; }
+#dbgBtn { font-size:0.7rem; padding:3px 8px; }
 pre { background:#10152a; border:1px solid var(--line); border-radius:6px;
   padding:9px 11px; font-size:0.68rem; line-height:1.5; margin:0;
   font-family:Consolas,"D2Coding",monospace; white-space:pre-wrap; overflow-x:auto; }
