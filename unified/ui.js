@@ -139,6 +139,7 @@
 
     if (state.tab === 4) {
       drawDispersion();
+      if (!el('t4scan').classList.contains('folded')) drawScan();
       timing.render = performance.now() - t0;
       timing.total = timing.image + timing.sum + timing.wire + timing.measure + timing.render;
       el('timer').textContent = '계산 시간:  영상법 ' + timing.image.toFixed(0) +
@@ -210,6 +211,30 @@
       L.push('  차트 캔버스 백킹 ' + cv4.width + '×' + cv4.height +
              ' · 표시 ' + r4.width.toFixed(0) + '×' + r4.height.toFixed(0) +
              ' · DPR ' + window.devicePixelRatio + ' (표시×DPR 방식, 정수 스냅 미적용)');
+      L.push('── 탭 4 (C) 수렴 스캔 ──');
+      L.push('  ' + (el('t4scan').classList.contains('folded') ? '접힘' : '펼침') +
+             ' · ' + el('scanInfo').textContent);
+      ['N', 'D'].forEach(function (w) {
+        var c = el(w === 'N' ? 'cvScanN' : 'cvScanD'), rr = c.getBoundingClientRect();
+        L.push('  ' + (w === 'N' ? 'C-1 영상법 N축' : 'C-2 도선관 d축') +
+               '  백킹 ' + c.width + '×' + c.height +
+               ' · 표시 ' + rr.width.toFixed(0) + '×' + rr.height.toFixed(0));
+      });
+      scan.N.forEach(function (r) {
+        var f = function (s) { return s ? (s.ratio === null ? s.reason
+                 : (s.ratio * 100).toFixed(2) + '% plateAvg ' + s.plateAvg.toFixed(6)) : '—'; };
+        L.push('    N=' + String(r.N).padStart(3) + '  단순 ' + f(r.sim) + '  |  Cesàro ' + f(r.ces));
+      });
+      scan.D.forEach(function (r) {
+        var f = function (s) { return s ? (s.ratio === null ? s.reason : (s.ratio * 100).toFixed(2) + '%') : '—'; };
+        var dev = (r.off && r.off.ratio !== null && r.pred !== null)
+          ? ((r.off.ratio - r.pred) * 100).toFixed(3) + '%p' : '—';
+        L.push('    d=' + String(r.d).padStart(2) + '  OFF ' + f(r.off) +
+               ' 예측 ' + (r.pred === null ? '—' : (r.pred * 100).toFixed(2) + '%') +
+               ' 차이 ' + dev + '  |  ON ' + f(r.on) +
+               '  a_w/d ' + (r.off ? r.off.awOverD.toFixed(3) : '—') +
+               ' wallT ' + (r.off ? r.off.wallT.toFixed(4) : '—'));
+      });
     }
 
     L.push('── 장 ──');
@@ -356,6 +381,11 @@
    *           = −√(n² − (2/u)²)  감쇠율의 크기  (2/u < n)
    * u 에만 의존하므로 a 에 무관하다 — 서로 다른 a 에서 잰 점이 한 곡선에 모인다.
    * 그래서 a·y₀ 변경 시 자동 삭제하지 않는다 (설계 §9-4). */
+  /* 세로 범위는 고정한다 — 점이 쌓일 때마다 축이 움직이면 비교가 안 된다.
+   * 세 곡선이 잘리지 않는 최소 범위:
+   *   최대 +3.180  모드 1, u=0.6  (2/u=3.333 → √(11.111−1))
+   *   최소 −2.926  모드 3, u=3.0  (2/u=0.667 → −√(9−0.444))
+   * 모드 3은 u=0.6 에서 (2/u)²−9 = 2.11 > 0 이라 아직 전파 상태다(+1.453). */
   var U0 = 0.6, U1 = 3.0, Y0 = -3.1, Y1 = 3.4, PT_MAX = 200;
   var pts = [], ptsOut = 0;
 
@@ -489,6 +519,218 @@
       ' · ' + (best.method === 'image' ? '영상법' : '도선 관');
     tip.style.left = (chartBox.X(best.u) / chartBox.dpr) + 'px';
     tip.style.top = (chartBox.Y(best.y) / chartBox.dpr) + 'px';
+  }
+
+  /* ================= 탭 4 (C) 수렴 스캔 =================
+   * 두 패널이 서로 다른 발견을 보인다. "조일수록 좋아진다"가 아니라
+   * "무엇이 오차를 만들었고 어떻게 제거됐는가"를 보인다.
+   *   C-1 영상법  N축   단순 합 ↔ Cesàro        (설계 §11-7)
+   *   C-2 도선관  d축   정합 OFF ↔ 정합 ON      (설계 §11-6)
+   * OFF·단순 곡선이 결과이고 ON·Cesàro 는 100%에 평평하다 — 대비가 내용이다.
+   * 측정은 GEO.KAPPA_WIN·R² 가드를 포함한 measure.js 한 벌을 호출만 한다. */
+  var N_LIST = [10, 20, 40, 80, 160, 320];
+  var D_LIST = [3, 4, 5, 6, 8, 10, 12];
+  var SY0 = 40, SY1 = 115;                   // 세로 40~115% 고정 (자동 범위 금지)
+  var scan = { N: [], D: [], tasks: null, i: 0, t0: 0, ms: 0, running: false };
+
+  function scanKappaOf(field, a, n, d, kThy) {
+    return M.measureKappa(field, a, n, GEO.KAPPA_WIN, d, kThy);
+  }
+
+  function scanStep() {
+    if (!scan.running) return false;
+    var t = scan.tasks[scan.i];
+    if (!t) { scan.running = false; scan.ms = performance.now() - scan.t0; scanInfo(); markDirty(); return false; }
+    var a = state.a, k = 2 * Math.PI / state.lambda, kap = M.theoryKappa(1, a, k);
+    var p = { lambda: state.lambda, a: a, y0OverA: state.y0OverA };
+
+    if (t.kind === 'N') {
+      var row = { N: t.N };
+      [false, true].forEach(function (ces) {
+        var s = AD.imageScene(Object.assign({}, p, { N: t.N, cesaro: ces, scatBand: state.scatBand }));
+        var r = kap === null ? { value: null, reason: '전파 영역' } : scanKappaOf(s.tot, a, 1, 1, kap);
+        row[ces ? 'ces' : 'sim'] = { ratio: r.value === null ? null : r.value / kap,
+                                     reason: r.reason, r2: r.r2, plateAvg: s.quality.plateAvg };
+      });
+      scan.N.push(row);
+    } else {
+      var rowD = { d: t.d };
+      [false, true].forEach(function (auto) {
+        var s = AD.wireScene(Object.assign({}, p, { d: t.d, awAuto: auto, aw: GEO.aw }));
+        var r = kap === null ? { value: null, reason: '전파 영역' } : scanKappaOf(s.tot, a, 1, t.d, kap);
+        rowD[auto ? 'on' : 'off'] = { ratio: r.value === null ? null : r.value / kap,
+                                      reason: r.reason, r2: r.r2,
+                                      aw: s.quality.aw, awOverD: s.quality.awOverD,
+                                      wallT: s.quality.wallT, delta: s.quality.delta };
+      });
+      // 예측비 — δ 로 넓어진 유효 폭의 이론 κ 비. OFF 측정점과 겹쳐야 한다 (설계 §11-6).
+      var aEffOff = M.aEff(a, t.d, GEO.aw);
+      var kapEff = M.theoryKappa(1, aEffOff, k);
+      rowD.pred = (kap === null || kapEff === null) ? null : kapEff / kap;
+      scan.D.push(rowD);
+    }
+    scan.i++;
+    scanInfo(); markDirty();
+    return true;
+  }
+
+  function scanInfo() {
+    var n = scan.tasks ? scan.tasks.length : 0;
+    el('scanInfo').textContent = !scan.tasks ? '조건: 현재 사이드바 값. 모드 1만.'
+      : scan.running ? (scan.i + '/' + n + ' 완료 — 계산 중…')
+      : (scan.i + '/' + n + ' 완료 · 소요 ' + (scan.ms / 1000).toFixed(1) + 's');
+    el('scanRun').disabled = scan.running;
+  }
+
+  function scanRun() {
+    if (scan.running) return;
+    scan.N = []; scan.D = []; scan.i = 0; scan.ms = 0;
+    scan.tasks = N_LIST.map(function (N) { return { kind: 'N', N: N }; })
+      .concat(D_LIST.map(function (d) { return { kind: 'D', d: d }; }));
+    scan.running = true; scan.t0 = performance.now();
+    scanInfo();
+    // rAF 로 한 점씩 끊는다 — 동기 루프로 돌리면 UI가 얼어붙는다
+    (function pump() { if (scanStep()) requestAnimationFrame(pump); })();
+  }
+
+  /* ---------- (C) 그리기 ---------- */
+  function scanAxes(cv, xLab, xs, xOf) {
+    var dpr = window.devicePixelRatio || 1, r = cv.getBoundingClientRect();
+    var w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    var ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+    var padL = 44 * dpr, padR = 12 * dpr, padT = 12 * dpr, padB = 34 * dpr;
+    var X = function (v) { return padL + xOf(v) * (W - padL - padR); };
+    var Y = function (pc) { return padT + (SY1 - pc) / (SY1 - SY0) * (H - padT - padB); };
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = (10.5 * dpr) + 'px sans-serif';
+    ctx.lineWidth = 1 * dpr; ctx.strokeStyle = '#1b2140';
+    [50, 60, 70, 80, 90, 110].forEach(function (pc) {
+      ctx.beginPath(); ctx.moveTo(padL, Y(pc)); ctx.lineTo(W - padR, Y(pc)); ctx.stroke();
+    });
+    ctx.strokeStyle = '#2a3050'; ctx.strokeRect(padL, padT, W - padL - padR, H - padT - padB);
+    // 100% 기준선 — 강조
+    ctx.strokeStyle = '#aab2cf'; ctx.lineWidth = 1.6 * dpr;
+    ctx.beginPath(); ctx.moveTo(padL, Y(100)); ctx.lineTo(W - padR, Y(100)); ctx.stroke();
+    ctx.fillStyle = '#8892b5'; ctx.textAlign = 'right';
+    [50, 60, 70, 80, 90, 100, 110].forEach(function (pc) {
+      ctx.fillText(pc + '%', padL - 5 * dpr, Y(pc) + 3.5 * dpr);
+    });
+    ctx.textAlign = 'center';
+    xs.forEach(function (v) { ctx.fillText(String(v), X(v), H - padB + 14 * dpr); });
+    ctx.fillText(xLab, (padL + W - padR) / 2, H - padB + 29 * dpr);
+    return { ctx: ctx, X: X, Y: Y, dpr: dpr, W: W, H: H, padB: padB };
+  }
+
+  function scanSeries(g, rows, xKey, sKey, col, filled) {
+    var ctx = g.ctx, first = true;
+    ctx.strokeStyle = col; ctx.lineWidth = 1.8 * g.dpr; ctx.setLineDash([]);
+    ctx.beginPath();
+    rows.forEach(function (r) {
+      var s = r[sKey]; if (!s || s.ratio === null) { first = true; return; }
+      var x = g.X(r[xKey]), y = g.Y(s.ratio * 100);
+      if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    rows.forEach(function (r) {
+      var s = r[sKey];
+      if (!s || s.ratio === null) {
+        if (s) {   // 측정 불가 — 점을 찍지 않고 x축 아래에 사유 약어
+          ctx.fillStyle = '#8892b5'; ctx.textAlign = 'center';
+          ctx.fillText((s.reason || '?').slice(0, 6), g.X(r[xKey]), g.H - g.padB + 26 * g.dpr);
+        }
+        return;
+      }
+      var x = g.X(r[xKey]), y = g.Y(s.ratio * 100);
+      // 얇은 도선 근사 이탈은 다른 마커로 — 편차에 δ 효과와 근사 이탈이 섞여 있다
+      if (s.awOverD > 0.25) {
+        ctx.strokeStyle = col; ctx.lineWidth = 1.5 * g.dpr;
+        var t = 5 * g.dpr;
+        ctx.beginPath(); ctx.moveTo(x, y - t); ctx.lineTo(x + t, y + t); ctx.lineTo(x - t, y + t);
+        ctx.closePath(); ctx.stroke();
+      } else if (filled) {
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 3.4 * g.dpr, 0, 6.2832); ctx.fill();
+      } else {
+        ctx.strokeStyle = col; ctx.lineWidth = 1.5 * g.dpr;
+        ctx.beginPath(); ctx.arc(x, y, 3.4 * g.dpr, 0, 6.2832); ctx.stroke();
+      }
+    });
+  }
+
+  function scanLegend(g, items) {
+    var ctx = g.ctx, x = g.X === undefined ? 0 : 0;
+    ctx.textAlign = 'left'; ctx.font = (10.5 * g.dpr) + 'px sans-serif';
+    items.forEach(function (it, i) {
+      var yy = 20 * g.dpr + i * 14 * g.dpr, xx = g.W - 150 * g.dpr;
+      ctx.strokeStyle = it[1]; ctx.lineWidth = 2 * g.dpr; ctx.setLineDash(it[2] || []);
+      ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx + 16 * g.dpr, yy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = it[1]; ctx.fillText(it[0], xx + 21 * g.dpr, yy + 3.5 * g.dpr);
+    });
+  }
+
+  var SIM_COL = '#e8913a', CES_COL = '#3fb56b', OFF_COL = '#e8913a', ON_COL = '#3fb56b', PRED_COL = '#9aa3b8';
+
+  function drawScan() {
+    var lx = Math.log(N_LIST[0]), lw = Math.log(N_LIST[N_LIST.length - 1]) - lx;
+    var gN = scanAxes(el('cvScanN'), 'N (영상 쌍) — 로그축', N_LIST,
+      function (v) { return (Math.log(v) - lx) / lw; });
+    scanSeries(gN, scan.N, 'N', 'sim', SIM_COL, true);
+    scanSeries(gN, scan.N, 'N', 'ces', CES_COL, true);
+    scanLegend(gN, [['단순 합', SIM_COL], ['Cesàro', CES_COL]]);
+
+    var d0 = 2.5, d1 = 12.5;
+    var gD = scanAxes(el('cvScanD'), 'd (도선 간격, mm)', D_LIST,
+      function (v) { return (v - d0) / (d1 - d0); });
+    // 예측 점선 — 연속 곡선으로. OFF 측정점이 이 위에 놓이면 §11-6이 시각적으로 증명된다.
+    var a = state.a, k = 2 * Math.PI / state.lambda, kap0 = M.theoryKappa(1, a, k);
+    if (kap0 !== null) {
+      gD.ctx.strokeStyle = PRED_COL; gD.ctx.lineWidth = 1.4 * gD.dpr;
+      gD.ctx.setLineDash([5 * gD.dpr, 4 * gD.dpr]); gD.ctx.beginPath();
+      for (var i = 0, f = true; i <= 200; i++) {
+        var dd = d0 + (d1 - d0) * i / 200;
+        var ke = M.theoryKappa(1, M.aEff(a, dd, GEO.aw), k);
+        if (ke === null) { f = true; continue; }
+        var pc = ke / kap0 * 100;
+        if (pc < SY0 || pc > SY1) { f = true; continue; }
+        if (f) { gD.ctx.moveTo(gD.X(dd), gD.Y(pc)); f = false; } else gD.ctx.lineTo(gD.X(dd), gD.Y(pc));
+      }
+      gD.ctx.stroke(); gD.ctx.setLineDash([]);
+    }
+    scanSeries(gD, scan.D, 'd', 'off', OFF_COL, true);
+    scanSeries(gD, scan.D, 'd', 'on', ON_COL, true);
+    scanLegend(gD, [['정합 OFF (a_w=0.8)', OFF_COL], ['정합 ON (a_w=d/2π)', ON_COL],
+                    ['예측 κ(a_eff)/κ(a)', PRED_COL, [5, 4]]]);
+    scanBoxes = { N: gN, D: gD };
+  }
+
+  var scanBoxes = null;
+  function scanTip(which, ev) {
+    var cv = el(which === 'N' ? 'cvScanN' : 'cvScanD');
+    var tip = el(which === 'N' ? 'tipScanN' : 'tipScanD');
+    var g = scanBoxes && scanBoxes[which];
+    if (!g) return;
+    var r = cv.getBoundingClientRect();
+    var mx = (ev.clientX - r.left) * g.dpr, my = (ev.clientY - r.top) * g.dpr;
+    var best = null, bd = 14 * g.dpr;
+    (which === 'N' ? scan.N : scan.D).forEach(function (row) {
+      (which === 'N' ? ['sim', 'ces'] : ['off', 'on']).forEach(function (kk) {
+        var s = row[kk]; if (!s || s.ratio === null) return;
+        var d = Math.hypot(g.X(which === 'N' ? row.N : row.d) - mx, g.Y(s.ratio * 100) - my);
+        if (d < bd) { bd = d; best = { row: row, k: kk, s: s }; }
+      });
+    });
+    if (!best) { tip.style.display = 'none'; return; }
+    var s = best.s;
+    tip.style.display = '';
+    tip.textContent = which === 'N'
+      ? (best.k === 'sim' ? '단순 합' : 'Cesàro') + ' N=' + best.row.N +
+        ' · κ비 ' + (s.ratio * 100).toFixed(1) + '% · plateAvg ' + s.plateAvg.toFixed(6)
+      : (best.k === 'off' ? '정합 OFF' : '정합 ON') + ' d=' + best.row.d +
+        ' · κ비 ' + (s.ratio * 100).toFixed(1) + '% · a_w/d ' + s.awOverD.toFixed(3) +
+        ' · wallT ' + s.wallT.toFixed(4);
+    tip.style.left = (g.X(which === 'N' ? best.row.N : best.row.d) / g.dpr) + 'px';
+    tip.style.top = (g.Y(s.ratio * 100) / g.dpr) + 'px';
   }
 
   /* ---------------- 측정 버튼 (상시 기능, ?debug=1 무관) ----------------
@@ -902,6 +1144,22 @@
     // 자동 삭제는 두지 않는다 — 정규화 축에서 곡선은 a 에 무관하고, 프리셋이 a 를
     // 바꾸므로 자동 삭제를 두면 프리셋을 누를 때마다 점이 날아간다 (설계 §9-4).
     el('clearPts').addEventListener('click', function () { pts = []; markDirty(); });
+    el('scanFold').addEventListener('click', function () {
+      var on = el('t4scan').classList.toggle('folded');
+      el('scanFold').textContent = on ? '(C) 수렴 스캔 ▸' : '(C) 수렴 스캔 ▾';
+      markDirty();
+    });
+    el('scanRun').addEventListener('click', scanRun);
+    el('scanClear').addEventListener('click', function () {
+      scan.N = []; scan.D = []; scan.tasks = null; scan.i = 0; scanInfo(); markDirty();
+    });
+    el('cvScanN').addEventListener('mousemove', function (e) { scanTip('N', e); });
+    el('cvScanD').addEventListener('mousemove', function (e) { scanTip('D', e); });
+    el('cvScanN').addEventListener('mouseleave', function () { el('tipScanN').style.display = 'none'; });
+    el('cvScanD').addEventListener('mouseleave', function () { el('tipScanD').style.display = 'none'; });
+    // 숨겨진 창은 rAF 가 멈춰 스캔이 진행되지 않는다. 진단용 수동 구동 훅.
+    if (DEBUG) window.__scan = { run: scanRun, step: scanStep, data: scan };
+    scanInfo();
     el('cvDisp').addEventListener('mousemove', chartTip);
     el('cvDisp').addEventListener('mouseleave', function () { el('ptTip').style.display = 'none'; });
     // 캡션 접기 — 펼치면 세로를 먹고, 컬럼 폭이 행 높이에서 역산되므로 캔버스가 작아진다

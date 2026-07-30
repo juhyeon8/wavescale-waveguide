@@ -118,7 +118,8 @@ body.capopen .sidebar-scroll { overflow:visible; }
 /* ---- 탭 4 — (A) 지표 표 + (B) 분산 곡선 ----
    (B)는 선 그래프라 필드 캔버스가 아니다. 백킹 520×220 고정·정수 스냅을 쓰지 않고
    원본 script.js:fitGraph 방식(표시 크기 × DPR)에 image-rendering:auto 를 쓴다. */
-.tab4 { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:10px; }
+.tab4 { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:10px;
+  overflow-y:auto; }
 .t4-table { flex:0 0 auto; }
 #metricTable { border-collapse:collapse; width:100%; font-size:0.76rem; }
 #metricTable th, #metricTable td { border:1px solid var(--line); padding:5px 9px; text-align:left;
@@ -132,10 +133,20 @@ body.capopen .sidebar-scroll { overflow:visible; }
 #metricTable td.na   { color:#8892b5; font-family:inherit; }
 .t4-note { font-size:0.7rem; color:var(--mut); margin-top:5px; }
 .t4-chart { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
-.t4-chartbox { flex:1 1 auto; min-height:0; position:relative; }
+.t4-chartbox { flex:1 1 auto; min-height:240px; position:relative; }
 .t4-chartbox canvas { width:100%; height:100%; display:block; image-rendering:auto;
   background:#10152a; border:1px solid var(--line); border-radius:6px; }
 .t4-chartfoot { flex:0 0 auto; display:flex; align-items:center; gap:10px; margin-top:6px; }
+/* (C) 수렴 스캔 — 접이식, 기본 접힘 */
+.t4-scan { flex:0 0 auto; border-top:1px solid var(--line); padding-top:8px; }
+.t4-scanhead { display:flex; align-items:center; gap:8px; }
+.t4-scan.folded .t4-scanbody { display:none; }
+.t4-scangrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
+.t4-scanbox { height:250px; position:relative; }
+.t4-scanbox canvas { width:100%; height:100%; display:block; image-rendering:auto;
+  background:#10152a; border:1px solid var(--line); border-radius:6px; }
+@media (max-width:1100px){ .t4-scangrid { grid-template-columns:1fr; } }
+
 .pttip { position:absolute; display:none; pointer-events:none; z-index:5;
   background:#1b2140; border:1px solid #3a4270; border-radius:5px; padding:4px 8px;
   font-size:0.68rem; color:var(--fg); white-space:nowrap; transform:translate(-50%,-130%); }
