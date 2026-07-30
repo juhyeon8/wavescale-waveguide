@@ -60,6 +60,10 @@ button:hover { background:#252d54; }
 .timer { font-size:0.71rem; color:var(--mut); font-family:Consolas,"D2Coding",monospace; line-height:1.5; }
 .busy { font-size:0.72rem; color:#ffd54a; margin-top:3px; }
 .diff { font-size:0.78rem; color:#9fc4ff; margin-bottom:4px; }
+#measBtn { margin-bottom:5px; }
+.measout { font-size:0.68rem; line-height:1.5; color:#cfd6e6; padding:6px 8px; margin:0 0 5px;
+  background:#10152a; border:1px solid var(--line); border-radius:5px; min-height:0; }
+.measout:empty { display:none; }
 
 /* ---- 오른쪽 비교 그리드 ----
    폭은 ui.js:layout()이 행 높이에서 역산해 픽셀로 지정한다.

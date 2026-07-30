@@ -181,8 +181,8 @@ function runG2() {
         if (r.value !== null) {
           var pct = r.value / kap * 100;
           if (q.key === 'sum') dev.push(Math.abs(pct - 100));
-          // 임계값 사전 규칙: 창 C · 모드 1 · 값이 나온 모든 열
-          if (w === GEO.KAPPA_WIN && n === 1) chk('G2 창C mode1 ' + q.label, Math.abs(pct / 100 - 1), TH.G2);
+          // 임계값 사전 규칙: 확정창(GEO.KAPPA_WIN) · 모드 1 · 값이 나온 모든 열
+          if (w === GEO.KAPPA_WIN && n === 1) chk('G2 창' + w + ' mode1 ' + q.label, Math.abs(pct / 100 - 1), TH.G2);
         }
         return cell(r, kap);
       });
@@ -400,7 +400,8 @@ function runG4() {
 function runG5() {
   var c = COND.P1;
   hr('[G5] 이중 수렴 스캔 — 판정 없음');
-  L('  손잡이를 조일수록 각각 이론값에 가까워지는지 본다. 창 A·B·C를 모두 보인다 (창 미확정이므로).');
+  L('  손잡이를 조일수록 각각 이론값에 가까워지는지 본다. 확정창은 ' + GEO.KAPPA_WIN +
+    ' 이나, 창 의존성이 손잡이에 따라 어떻게 사라지는지 보이려고 A·B·C를 모두 출력한다.');
   var k = 2 * Math.PI / c.lambda, kap = M.theoryKappa(1, c.a, k);
   L('  mode 1,  이론 κ = ' + kap.toFixed(7));
   L();
@@ -502,6 +503,7 @@ hr('요약');
 L('  총 소요 ' + ((Date.now() - T0) / 1000).toFixed(1) + 's');
 L('  설정: κ창 ' + GEO.KAPPA_WIN + ',  영상법 N=' + GEO.N + (GEO.CESARO ? ' Cesàro' : ' 단순 합') +
   ',  유효 벽 정합 ' + (GEO.AW_AUTO ? 'ON (a_w=d/2π)' : 'OFF') +
+  ',  벽 사이 제한 ' + (GEO.SCAT_BAND ? 'ON' : 'OFF (전 영역, 대조용)') +
   ',  G4 영역 [' + GEO.G4_ZRANGE.join(', ') + ']');
 L();
 if (FAIL.length) { L('  판정 대상 FAIL ' + FAIL.length + '건:\n    ' + FAIL.join('\n    ')); process.exitCode = 1; }

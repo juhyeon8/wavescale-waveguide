@@ -19,6 +19,44 @@
 
   function mk() { return IMG.makeField(GEO.Nx, GEO.Ny); }
 
+  /* ---------- 산란장·전체장을 벽 사이 띠에서만 계산 (설계 §8-1) ----------
+   * 영상법 2·3행은 벽 바깥이 불투명 마스크로 가려진다. 기본 조건이면 220행 중 61행만
+   * 화면에 나오므로 나머지는 계산해서 곧바로 덮어 가리는 낭비다.
+   *
+   * 원본 field.js의 커널(addOneSource)을 고치지도, 그 내부 루프를 베끼지도 않는다.
+   * 대신 띠 높이만큼의 임시 격자에 원본 커널을 그대로 돌리고 제자리로 옮긴다.
+   * 소스 y를 jBot만큼 내리면 dy가 같아지므로 물리가 바뀌지 않는다
+   * (부동소수점 반올림 차이는 1 ulp 수준이며, verify.js ON/OFF 대조로 확인한다).
+   *
+   * 범위 밖 배열 원소는 0으로 남는다. 마스크가 덮으므로 화면에는 안 나오지만,
+   * 그 값을 읽는 경로가 생기면 조용히 0이 흘러든다. ?debug=1이 범위를 찍는다. */
+  function bandOf(a) { return M.jBotTop(a); }
+
+  function computeBand(dst, sources, table, jBot, jTop) {
+    var h = jTop - jBot + 1;
+    var band = IMG.makeField(GEO.Nx, h);
+    IMG.computeField(band, sources.map(function (s) {
+      return { x: s.x, y: s.y - jBot, sign: s.sign };
+    }), table);
+    var Ny = dst.Ny;
+    for (var i = 0; i < GEO.Nx; i++) {
+      var s = i * h, d = i * Ny + jBot;
+      for (var j = 0; j < h; j++) { dst.re[d + j] = band.re[s + j]; dst.im[d + j] = band.im[s + j]; }
+    }
+    return dst;
+  }
+
+  // 띠 안에서만 A±B. 밖은 0으로 둔다 (보정하지 않는다 — 설계 §5-1).
+  function combineBand(dst, A, B, sign, jBot, jTop) {
+    var Ny = dst.Ny;
+    for (var i = 0; i < GEO.Nx; i++) for (var j = jBot; j <= jTop; j++) {
+      var k = i * Ny + j;
+      dst.re[k] = A.re[k] + sign * B.re[k];
+      dst.im[k] = A.im[k] + sign * B.im[k];
+    }
+    return dst;
+  }
+
   function dAuto(lambda) { return WGM.dAuto(lambda, GEO.L, GEO.Nmax); }
 
   // 도체판 두 줄 위의 |E| 평균 — 원본 main.js:plateWallAvg 로직 그대로.
@@ -52,14 +90,17 @@
     var rMax = Math.hypot(GEO.Nx + x0, GEO.Ny + N * a) + 10;
     var table = IMG.buildHankelTable(k, rMax);
 
+    // 1행 입사파는 소스 하나라 저렴하고, 설계 §8-1이 마스크 없음을 요구한다 → 전 영역 유지.
     var inc = IMG.computeField(mk(), [{ x: x0, y: ys, sign: 1 }], table);
+    var band = (p.scatBand === undefined) ? GEO.SCAT_BAND : !!p.scatBand;
+    var bt = bandOf(a), jBot = band ? bt.jBot : 0, jTop = band ? bt.jTop : GEO.Ny - 1;
     var scat, tot, markers;
 
     if (p.modeInfinity) {
       tot = IMG.computeModeField(GEO.Nx, GEO.Ny, GEO.y0pix, a, p.lambda, x0, 41, ys);
       // ⚠ 벽 바깥에서 computeModeField는 0이므로 scat = −inc 가 된다. 뺄셈 찌꺼기이며
       //   산란장이 아니다. 렌더러가 그 영역을 불투명 마스크로 가린다. 보정하지 말 것. (설계 §5-1)
-      scat = IMG.subtractComplex(mk(), tot, inc);
+      scat = combineBand(mk(), tot, inc, -1, jBot, jTop);
       markers = fadedImageMarkers(a, ys, x0);
     } else {
       var imgs = IMG.generateImages('A', N, x0, GEO.y0pix, a, ys);
@@ -75,8 +116,8 @@
           return { x: g.x, y: g.y, sign: g.sign * wOf(i) };
         });
       }
-      scat = IMG.computeField(mk(), src, table);
-      tot = IMG.addComplex(mk(), inc, scat);
+      scat = computeBand(mk(), src, table, jBot, jTop);
+      tot = combineBand(mk(), inc, scat, +1, jBot, jTop);
       markers = imgs.map(function (g, i) {
         return { xPix: g.x, yPix: g.y, kind: 'image-source', weight: wOf ? wOf(i) : 1 };
       });
@@ -92,6 +133,7 @@
                xFromPix: 0, xToPix: GEO.Nx },
       markers: markers,
       quality: { N: N, modeInfinity: !!p.modeInfinity, cesaro: cesaro && !p.modeInfinity,
+                 scatBand: band, jBot: jBot, jTop: jTop, bandRows: jTop - jBot + 1,
                  plateAvg: plateWallAvg(tot, a) }
     };
   }

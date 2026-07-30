@@ -9,7 +9,7 @@
 
   var state = {
     a: 60, lambda: 144, y0OverA: 0.500,
-    N: GEO.N, cesaro: GEO.CESARO, awAuto: GEO.AW_AUTO, aw: GEO.aw,
+    N: GEO.N, cesaro: GEO.CESARO, awAuto: GEO.AW_AUTO, aw: GEO.aw, scatBand: GEO.SCAT_BAND,
     dAutoOn: true, dManual: 5,
     gamma: 0.4, phase: 0, dPhi: 0.15, paused: false, singleScale: false
   };
@@ -30,7 +30,8 @@
     var t0 = performance.now();
     var p = { lambda: state.lambda, a: state.a, y0OverA: state.y0OverA };
 
-    var si = AD.imageScene(Object.assign({}, p, { N: state.N, cesaro: state.cesaro }));
+    var si = AD.imageScene(Object.assign({}, p, { N: state.N, cesaro: state.cesaro,
+                                                  scatBand: state.scatBand }));
     var t1 = performance.now();
     var sw = AD.wireScene(Object.assign({}, p, {
       d: currentD(), awAuto: state.awAuto, aw: state.aw }));
@@ -118,6 +119,16 @@
   function dumpDebug(dbg) {
     if (dbgFrames++ % 30 !== 0) return;              // 30프레임마다 한 번만 갱신
     var L = [];
+
+    // ── 배치 실측 (진단) ──
+    L.push('── 배치 ──');
+    layoutProbe().forEach(function (s) { L.push(s); });
+    L.push('── 장 ──');
+
+    var qi = scenes.image.quality;
+    L.push('산란장 계산 범위: j=[' + qi.jBot + ',' + qi.jTop + '] (' + GEO.Ny + '행 중 ' +
+           qi.bandRows + '행)' + (qi.scatBand ? '' : '  ← 벽 사이 제한 OFF (전 영역, 대조용)'));
+
     ['image', 'wire'].forEach(function (side) {
       var s = scenes[side], w = s.walls;
       L.push('벽 ' + side.padEnd(6) + ' yTop=' + w.yTopPix + ' yBot=' + w.yBotPix +
@@ -152,6 +163,58 @@
     L.push('품질 image ' + JSON.stringify(scenes.image.quality));
     L.push('품질 wire  ' + JSON.stringify(scenes.wire.quality));
     el('debugout').textContent = L.join('\n');
+  }
+
+  /* ---------------- 측정 버튼 (상시 기능, ?debug=1 무관) ----------------
+   * 페이지가 스스로 잰다. 브라우저를 밖에서 조작해 반복할 필요가 없다.
+   * 숨겨진 창에서는 Chrome이 렌더러 우선순위를 낮춰 동기 계산도 느려진다
+   * (실측 2549 → 340 ms, 7.5배). 그래서 vis !== 'visible' 이면 재지 않는다. */
+  function med(arr) { var b = arr.slice().sort(function (x, y) { return x - y; }); return b[(b.length - 1) >> 1]; }
+  function nextFrame() {
+    return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); });
+  }
+
+  var benching = false;
+  function bench() {
+    if (benching) return;
+    var out = el('measOut');
+    if (document.visibilityState !== 'visible') {
+      out.textContent = '창이 보이지 않아 측정할 수 없습니다'; return;
+    }
+    benching = true;
+    el('measBtn').disabled = true;
+    out.textContent = '측정 중…';
+
+    var runs = [];
+    var i = 0;
+    nextFrame().then(function step() {
+      recompute();
+      if (i >= 2) runs.push({ image: timing.image, wire: timing.wire, measure: timing.measure,
+                              render: timing.render, total: timing.total });
+      i++;
+      if (i < 7) return nextFrame().then(step);
+      return null;
+    }).then(function () {
+      var q = scenes.wire.quality;
+      var cond = 'λ=' + cm(state.lambda).toFixed(1) + 'cm a=' + cm(state.a).toFixed(1) +
+        ' y₀/a=' + state.y0OverA.toFixed(3) + ' N=' + state.N +
+        (state.cesaro ? ' Cesàro' : ' 단순합') + ' d=' + q.d.toFixed(3) +
+        (q.awAuto ? ' 정합ON' : ' 정합OFF') + (state.scatBand ? ' 벽제한ON' : ' 벽제한OFF');
+      var env = 'DPR=' + window.devicePixelRatio +
+        '  outer/inner=' + (window.outerWidth / window.innerWidth).toFixed(4) +
+        '  viewport=' + window.innerWidth + 'x' + window.innerHeight +
+        '  vis=' + document.visibilityState;
+      out.textContent =
+        '측정 · 중앙값/5회 (워밍업 2회)\n' + cond + '\n' + env + '\n' +
+        '영상법 ' + med(runs.map(function (r) { return r.image; })).toFixed(0) +
+        ' · 도선관 ' + med(runs.map(function (r) { return r.wire; })).toFixed(0) +
+        ' · 측정 ' + med(runs.map(function (r) { return r.measure; })).toFixed(0) +
+        ' · 렌더 ' + med(runs.map(function (r) { return r.render; })).toFixed(0) +
+        ' · 합계 ' + med(runs.map(function (r) { return r.total; })).toFixed(0) + ' ms\n' +
+        '원시 합계: ' + runs.map(function (r) { return r.total.toFixed(0); }).join(' ');
+      benching = false;
+      el('measBtn').disabled = false;
+    });
   }
 
   /* ---------------- 읽기값 ---------------- */
@@ -218,13 +281,21 @@
    * 남는 가로 폭은 사이드바가 전부 흡수한다 (.sidebar flex:1 1 auto). */
   var GAP_Y = 8, LBL_W = 56, SIDEBAR_2COL = 560;
 
+  // 계측 전용 — layout()이 언제·어떤 크기에서 무엇을 계산했는지 남긴다.
+  // 진단이 끝날 때까지 계산식과 CSS는 건드리지 않는다.
+  var layoutLog = { calls: 0, applied: 0, fallback: 0, lastMain: '—', rowH: null, colW: null, gridW: null };
+
   function layout() {
+    layoutLog.calls++;
     var main = document.querySelector('.app-main'), grid = el('compare'), side = el('sidebar');
     if (!main || !grid) return;
+    layoutLog.lastMain = main.clientWidth + 'x' + main.clientHeight;
 
     if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
       grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = '';
       side.classList.remove('wide');
+      layoutLog.fallback++;
+      layoutLog.rowH = layoutLog.colW = layoutLog.gridW = null;
       return;
     }
     for (var pass = 0; pass < 2; pass++) {
@@ -235,8 +306,33 @@
       var colW = Math.round(rowH * GEO.Nx / GEO.Ny);
       grid.style.gridTemplateColumns = LBL_W + 'px ' + colW + 'px ' + colW + 'px';
       grid.style.gridTemplateRows = 'auto ' + rowH + 'px ' + rowH + 'px ' + rowH + 'px auto';
+      layoutLog.rowH = rowH; layoutLog.colW = colW; layoutLog.gridW = LBL_W + 2 * colW;
     }
+    layoutLog.applied++;
     side.classList.toggle('wide', side.clientWidth >= SIDEBAR_2COL);
+  }
+
+  // ?debug=1 배치 실측 — 계산값과 실제로 화면이 준 폭을 나란히 놓는다.
+  function layoutProbe() {
+    var main = document.querySelector('.app-main'), side = el('sidebar'), grid = el('compare');
+    if (!main) return [];
+    return [
+      'app-main:  clientWidth ' + main.clientWidth + ' clientHeight ' + main.clientHeight,
+      'sidebar:   offsetWidth ' + side.offsetWidth + ' scrollWidth ' + side.scrollWidth +
+        ' scrollHeight ' + side.scrollHeight + '  세로스크롤 ' +
+        (side.scrollHeight > side.clientHeight ? '있음' : '없음') + '  2열 ' + (side.classList.contains('wide') ? 'ON' : 'OFF'),
+      'compare:   offsetWidth ' + grid.offsetWidth + ' scrollWidth ' + grid.scrollWidth +
+        '  넘침 ' + (grid.scrollWidth > grid.offsetWidth ? '있음' : '없음') +
+        '  실제 캔버스폭 ' + el('cv-tot-image').getBoundingClientRect().width.toFixed(1) +
+        ' 높이 ' + el('cv-tot-image').getBoundingClientRect().height.toFixed(1),
+      '계산값:    rowH ' + layoutLog.rowH + ' colW ' + layoutLog.colW + ' gridW ' + layoutLog.gridW +
+        '  (합 = 사이드바 최소 340 + gap 14 + gridW)',
+      'layout():  호출 ' + layoutLog.calls + '회 (적용 ' + layoutLog.applied + ' · 폴백 ' + layoutLog.fallback +
+        ') · 마지막 호출 시점의 app-main ' + layoutLog.lastMain,
+      '창:        viewport ' + window.innerWidth + 'x' + window.innerHeight +
+        '  DPR ' + window.devicePixelRatio + '  outer/inner ' + (window.outerWidth / window.innerWidth).toFixed(4) +
+        '  vis ' + document.visibilityState
+    ];
   }
 
   /* ---------------- 입력 ---------------- */
@@ -277,6 +373,9 @@
       state.dAutoOn = e.target.checked; el('dMan').disabled = state.dAutoOn; recompute();
     });
     el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
+    el('measBtn').addEventListener('click', bench);
+    // 벽 사이 제한 대조 토글 — ?debug=1 에서만 노출한다 (평소엔 켜 둔 채로 쓴다)
+    el('scatAll').addEventListener('change', function (e) { state.scatBand = !e.target.checked; recompute(); });
     el('pauseBtn').addEventListener('click', function () {
       state.paused = !state.paused; markDirty();
       el('pauseBtn').textContent = state.paused ? '▶ 재개' : '⏸ 일시정지';
@@ -304,8 +403,9 @@
       });
     });
 
-    if (DEBUG) el('debugbox').style.display = '';
+    if (DEBUG) { el('debugbox').style.display = ''; el('scatAllRow').style.display = ''; }
     el('nImg').max = GEO.N_MAX;
+    el('scatAll').checked = !state.scatBand;
 
     layout();
     var relayout = null;

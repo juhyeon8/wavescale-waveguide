@@ -40,6 +40,8 @@
         <label class="chk"><input id="awAuto" type="checkbox" checked>
           <span>유효 벽 정합 (a_w = d/2π)</span></label>
         <label>수동 a_w <input id="awMan" type="range" min="0.2" max="2.0" step="0.1" value="0.8" disabled><b id="awVal"></b></label>
+        <label class="chk" id="scatAllRow" style="display:none"><input id="scatAll" type="checkbox">
+          <span>전 영역 계산 <em>대조용 — 끄면 영상법 산란장·전체장을 벽 사이에서만 계산</em></span></label>
         <div class="readout" id="deltaVal"></div>
         <div class="readout" id="plateVal"></div>
         <div class="readout" id="wallTVal"></div>
@@ -60,6 +62,8 @@
     <!-- 계시기 — 사이드바 하단 고정 (§10-2). 임시 계측이 아니라 영구 기능이다. -->
     <div class="sidebar-foot">
       <div id="diffVal" class="diff"></div>
+      <button id="measBtn" type="button">측정 (5회 중앙값)</button>
+      <pre id="measOut" class="measout"></pre>
       <div id="timer" class="timer"></div>
       <div id="busy" class="busy" style="display:none">계산 중…</div>
     </div>
