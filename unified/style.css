@@ -97,9 +97,12 @@ button:hover { background:#252d54; }
 .capcell { font-size:0.68rem; line-height:1.45; color:#7e879e; }
 .capcell p { margin:0 0 4px; }
 .capcell p:last-child { margin-bottom:0; }
-/* 캡션 접기 — 접히면 캔버스 세로가 그만큼 늘고, 컬럼 폭이 함께 커진다 */
+/* 캡션 접기 — 캡션 높이는 layout() 예산 밖이다. 펼치면 그리드 크기가 변하지 않고
+   페이지가 아래로 스크롤된다 (배율 1.000 · pixelated 유지 · 좌우 열 대응 유지). */
 .capbtn { font-size:0.68rem; padding:2px 6px; }
 .compare.capfold .capcell { display:none; }
+body.capopen { height:auto; min-height:100%; overflow-y:auto; }
+body.capopen .sidebar-scroll { overflow:visible; }
 
 .footcap { flex:0 0 auto; margin:8px 0 0; font-size:0.74rem; line-height:1.5; color:var(--mut);
   border-top:1px solid var(--line); padding-top:7px; }

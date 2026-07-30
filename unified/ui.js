@@ -311,8 +311,12 @@
 
     // 차단 무대일 때만 관 내부 상대 차이 (G4와 같은 지표·같은 영역)
     if (cutoffStage) {
+      // G4 게이트 임계 3%는 G2 조건(a=6.0cm, λ=14.4cm)에서만 정의된 값이다.
+      // 조건을 벗어난 값이 게이트 실패로 오독되지 않게 한 줄 덧붙인다.
+      var atG2 = (state.a === 60 && state.lambda === 144);
       el('diffVal').textContent = '관 내부 상대 차이: ' +
-        (relL2(scenes.image.tot, scenes.wire.tot) * 100).toFixed(1) + '%';
+        (relL2(scenes.image.tot, scenes.wire.tot) * 100).toFixed(1) + '%' +
+        (atG2 ? '' : '   (참고 — G4 게이트 임계 3%는 λ=14.4 cm 조건에서만 정의됨)');
       el('diffVal').style.display = '';
     } else el('diffVal').style.display = 'none';
   }
@@ -388,12 +392,23 @@
     function byWidth(sw) {
       return Math.floor((availW - sw - GAP_X - LBL_W - 2 * COL_GAP) / 2);
     }
-    // 세로가 허용하는 컬럼 폭 (캡션 높이는 컬럼 폭에 의존하므로 호출부에서 반복 수렴)
+    /* 세로 예산은 뷰포트 산술로 낸다 — main.clientHeight 를 쓰면 안 된다.
+     * 캡션을 예산에서 제외하고 펼치면 페이지가 아래로 스크롤되게 했으므로,
+     * 펼친 상태의 main.clientHeight 는 캡션만큼 커진다. 그 값으로 행 높이를 정하면
+     * 행이 커지고 → main 이 또 커지는 순환이 된다.
+     * page-head·footcap 높이는 그리드 크기에 의존하지 않아 안정적이다. */
+    function budgetH() {
+      var bs = window.getComputedStyle(document.body);
+      var used = parseFloat(bs.paddingTop) + parseFloat(bs.paddingBottom);
+      var ph = document.querySelector('.page-head'), fc = document.querySelector('.footcap');
+      used += ph.offsetHeight;
+      used += fc.offsetHeight + parseFloat(window.getComputedStyle(fc).marginTop);
+      return document.documentElement.clientHeight - used;
+    }
+    // 캡션 높이는 예산에 넣지 않는다 (②) — 펼쳐도 그리드 크기가 변하지 않는다.
     function byHeight() {
       var headH = el('head-image').offsetHeight;
-      var capH = grid.classList.contains('capfold') ? 0
-               : Math.max(el('cap-image').offsetHeight, el('cap-wire').offsetHeight);
-      var rowH = Math.floor((main.clientHeight - headH - capH - 4 * GAP_Y) / 3);
+      var rowH = Math.floor((budgetH() - headH - 4 * GAP_Y) / 3);
       return Math.floor(rowH * GEO.Nx / GEO.Ny);
     }
 
@@ -577,8 +592,11 @@
     el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
     el('measBtn').addEventListener('click', bench);
     // 캡션 접기 — 펼치면 세로를 먹고, 컬럼 폭이 행 높이에서 역산되므로 캔버스가 작아진다
+    // 캡션은 레이아웃 예산 밖이다 — 펼치면 그리드 크기가 그대로이고 페이지가 아래로
+    // 스크롤된다. 배율 1.000과 pixelated 가 유지되며, 좌우 열 대응도 그대로다.
     el('capBtn').addEventListener('click', function () {
       var on = el('compare').classList.toggle('capfold');
+      document.body.classList.toggle('capopen', !on);
       el('capBtn').textContent = on ? '캡션 ▸' : '캡션 ▾';
       layout(); markDirty();
     });

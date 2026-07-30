@@ -142,12 +142,19 @@
    * 영상원은 경계조건을 만족시키기 위한 수학적 구성물이고, 도선 점은 실제로 전류가
    * 흐르는 물체다. 같은 모양으로 그리면 이 존재론적 차이가 지워진다.
    * 물리적 정직성 요구사항이며 미적 선택이 아니다. */
-  function drawMarkers(ctx, scene, maxWeight) {
+  function drawMarkers(ctx, scene, maxWeight, row) {
     var stat = { 'image-source': 0, wire: 0, source: 0 };
     var drawn = { 'image-source': 0, wire: 0, source: 0, total: 0 };
     ctx.save();
     scene.markers.forEach(function (m) {
       stat[m.kind] = (stat[m.kind] || 0) + 1;
+      /* 1행 입사파는 인과 사슬(경계조건 → 유도 전류/산란파 → 장)이 시작되기 전의
+       * 그림이다. 영상원은 경계조건을 맞추려는 구성물이고 도선 전류는 그 사슬의
+       * 결과이므로, 둘 다 입사장에 속하지 않는다. 소스 도선만 그린다.
+       * 도선 위치도 지운다 — 좌우 두 그림이 전 영역에서 똑같아지는 것이
+       * G1의 시각판이라는 설계 §8-1의 주장이 마커 때문에 약해지면 안 된다.
+       * 벽선·관 끝 점선은 기하이므로 drawWalls 가 1행에도 그린다. */
+      if (row === 'inc' && m.kind !== 'source') return;
       var x = m.xPix + 0.5, y = cy(m.yPix) + 0.5;
       // 영상원은 y = y0 ± r·a 라 대부분 캔버스 밖이다 (N=160이면 ±9600셀). 미리 걸러낸다.
       if (y < -6 || y > GEO.Ny + 6 || x < -6 || x > GEO.Nx + 6) return;
@@ -218,7 +225,7 @@
     drawWalls(ctx, scene);
     info.labels = info.mask.labels.slice();
     if (opts.ruler) { info.ruler = drawRuler(ctx, opts.ruler); info.labels.push(info.ruler.label); }
-    info.markers = drawMarkers(ctx, scene, maxWireWeight(scene));
+    info.markers = drawMarkers(ctx, scene, maxWireWeight(scene), row);
     return info;
   }
 
