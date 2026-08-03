@@ -78,7 +78,7 @@
     rulerS = R.rulerSpec(state.a, state.lambda);
 
     timing = { image: t1 - t0, sum: t1b - t1, wire: t2 - t1b, measure: t3 - t2, render: 0, total: 0 };
-    markDirty();
+    markDirty(); modeDirty = true;
     window.__meas = meas;
     collectPoints(meas);
     syncReadouts(meas);
@@ -163,6 +163,15 @@
       });
       el('scale-' + row).textContent = scales[row].toExponential(3);
     });
+
+    // 모드 분해 — |cₙ(z)| 는 위상과 무관하므로 애니메이션 프레임마다 다시 그리지 않는다.
+    // 다시 그릴 조건은 재계산(recompute)과 배치 변경(layout) 둘뿐이다.
+    if (state.tab === 3 && !el('compare').classList.contains('modefold') && modeDirty) {
+      // 진단값은 모듈 변수에 남긴다 — ?debug=1 덤프는 30프레임마다 돌아서
+      // 이 프레임의 dbg 객체를 보면 대부분 놓친다.
+      sidesOf(state.tab).forEach(function (side) { modeDiag[side] = drawModeGraph(side); });
+      modeDirty = false;
+    }
 
     var t1 = performance.now();
     timing.render = t1 - t0;
@@ -324,6 +333,40 @@
            '  길이=' + rulerS.len.toFixed(3) + '셀  이론=' + rulerS.theory.toFixed(6));
     L.push('스케일 inc=' + scales.inc.toExponential(4) + ' scat=' + scales.scat.toExponential(4) +
            ' tot=' + scales.tot.toExponential(4));
+
+    // ── 모드 분해 (묶음 B) ──
+    var ld = layoutLog.d;
+    L.push('── 모드 분해 ──');
+    if (!ld) {
+      L.push('  (폴백 배치 — 접힘)');
+    } else if (!ld.modeH) {
+      L.push('  접힘' + (state.tab === 3 ? '' : ' (탭 3 전용)') +
+             ' — 그리드는 도입 전과 동일. 필드 배율 ' + ld.scale.toFixed(3) +
+             (ld.scale >= 1 ? ' ✓' : ' ⚠ 축소'));
+    } else {
+      L.push('  펼침 · 행 높이 ' + ld.modeH + 'px (고정 상수 — 세로 예산 밖)' +
+             '  · 필드 배율 ' + ld.scale.toFixed(3) +
+             (ld.scale >= 1 ? ' ✓ 영향 없음' : ' ⚠ 축소') +
+             '  · rowH ' + ld.rowH.toFixed(1) + ' (펼치기 전후 같아야 한다)');
+      sidesOf(state.tab).forEach(function (side) {
+        var g = modeDiag[side];
+        if (!g) { L.push('  ' + side + ': (미표시)'); return; }
+        L.push('  ' + side + ' 캔버스 ' + g.W.toFixed(0) + '×' + g.H.toFixed(0) +
+               ' 플롯 ' + g.plot + ' DPR ' + g.dpr +
+               '  정규화 ' + g.norm.toExponential(3) + ' 바닥 ' + g.floor.toExponential(3) +
+               '  창 z[' + g.win.zStart.toFixed(1) + ',' + g.win.zEnd.toFixed(1) + ']');
+        [1, 2, 3].forEach(function (n) {
+          var m = g.modes[n];
+          if (!m) return;
+          L.push('    모드 ' + n + ' ' + m.kind +
+                 (m.kind === '차단'
+                   ? '  κ=' + m.kappa.toFixed(6) + ' 앵커=' + m.anchor.toExponential(3)
+                   : '  k_z=' + m.kz.toFixed(6) + ' 높이=' + m.height.toExponential(3) +
+                     ' 비=' + (m.ratio === null ? '—' : m.ratio.toFixed(4))) +
+                 '  바닥아래 ' + m.below + '/' + (GEO.L + 1) + '셀');
+        });
+      });
+    }
     L.push('계시기 영상법=' + timing.image.toFixed(1) + ' 도선관=' + timing.wire.toFixed(1) +
            ' 측정=' + timing.measure.toFixed(1) + ' 렌더=' + timing.render.toFixed(1) +
            ' 합계=' + timing.total.toFixed(1) + ' ms');
@@ -877,6 +920,183 @@
     return Math.sqrt(sum / cnt) / Math.sqrt(mx);
   }
 
+  /* ---------------- 모드 분해 그래프 (묶음 B) ----------------
+   * 원본 line-wire/higher-order/graph.js 가 그린 것과 같은 그림이다 — z에 따른
+   * |cₙ(z)| 로그 곡선(실선=실측, 점선=이론)이지 모드별 막대가 아니다.
+   * 그 파일을 로드·복사하지 않고 새로 그린다 (window.__hoState 역방향 의존 회피).
+   *
+   * 탭 4 (A)(B)와 무엇이 다른가 — (A)(B)는 창 안의 기울기를 숫자 하나로 요약해
+   * 이론 대비 %로 본다("얼마나 맞나"). 이 그래프는 z 전 구간의 모드 성분 자체를
+   * 보여준다("어디서부터 어디까지 맞나") — 측정 창 밖의 과도 구간과 잘림 바닥까지
+   * 드러난다. §7-2 G2-PROFILE 이 표로 하던 일의 화면판이다.
+   *
+   * 데이터는 measure.js 를 호출만 한다 (v1 §1-3). 측정 코드를 새로 쓰지 않는다.
+   * 원본이 쓰던 WGM.theoryPropAmp 는 measure.js 에 없지만, 이론 점선은 비율만
+   * 필요하고 그 비율이 coupling·theoryKz 로 정확히 나온다:
+   *     theoryPropAmp(n) = |sin(nπ·y0spec/a)| / k_z(n) = coupling(n, y0/a) / k_z(n)
+   * 그래서 measure.js 를 고치지 않는다. 원본의 window.__hoState.y0spec 의존도
+   * 여기서 원인부터 사라진다. */
+  /* 높이는 고정 상수다 — 세로 예산에서 가져오지 않는다.
+   * 실측 결과 남는 세로가 탭 1·2 = 43px, 탭 3 = 17px 뿐이었다. 예산 안에 넣으려면
+   * 캔버스를 줄여야 하는데 그러면 배율 1.000 이 깨지고 1px 벽선이 사라진다 (§16).
+   * 캔버스가 우선이므로 접이식으로 두고 펼칠 때 body 를 스크롤시킨다. */
+  var MODE_H = 220;                  // 펼쳤을 때 그래프 행 높이 (px, 고정)
+  var modeDirty = true;              // |cₙ(z)|는 위상과 무관 — 애니메이션마다 다시 그리지 않는다
+  var modeDiag = {};                 // ?debug=1 용. 마지막으로 그린 값
+
+  // fitChart 와 같은 방식(표시크기 × DPR, 정수 스냅 없음)이다. 탭 4가 쓰는 fitChart 를
+  // 건드리지 않으려고 따로 둔다 — 필드 캔버스가 아니므로 스냅 규칙도 적용하지 않는다.
+  function fitModeCv(cv) {
+    var dpr = window.devicePixelRatio || 1, r = cv.getBoundingClientRect();
+    var w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    return dpr;
+  }
+
+  function geoMean(arr, i0, i1) {
+    var s = 0, c = 0;
+    for (var i = i0; i <= i1; i++) {
+      if (i < 0 || i >= arr.length) continue;
+      s += Math.log(arr[i] < 1e-14 ? 1e-14 : arr[i]); c++;
+    }
+    return c ? Math.exp(s / c) : 1e-9;
+  }
+
+  function drawModeGraph(side) {
+    var cv = el('cv-mode-' + side), box = cv.getBoundingClientRect();
+    if (!box.width || !box.height) return null;
+    var dpr = fitModeCv(cv), ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);       // 논리좌표(CSS px)로 그림 → dpr 만큼 선명
+    var W = cv.width / dpr, H = cv.height / dpr;
+    ctx.clearRect(0, 0, W, H);
+
+    var scene = scenes[side], a = state.a, k = 2 * Math.PI / state.lambda;
+    // z축을 전체장 패널과 같은 비율로 맞춘다 — 위에서 눈으로 본 감쇠와 아래 곡선의
+    // 기울기가 같은 z에 놓인다. 이 정렬이 이 그래프의 존재 이유다.
+    var padL = (GEO.xLeft / GEO.Nx) * W, padR = (GEO.xRight / GEO.Nx) * W;
+    var padT = 19, padB = 20;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    if (!(plotW > 40) || !(plotH > 24)) return null;
+
+    var kaps = [1, 2, 3].map(function (n) { return M.theoryKappa(n, a, k); })
+                        .filter(function (v) { return v; });
+    var kappaMin = kaps.length ? Math.min.apply(null, kaps) : null;
+    var win = M.kzWindow(kappaMin);
+    var amps = {}, refI = Math.round(win.zStart) + GEO.xLeft, norm = 1e-9;
+    [1, 2, 3].forEach(function (n) {
+      amps[n] = M.modeCoefMag(scene.tot, a, n);
+      if (amps[n][refI] > norm) norm = amps[n][refI];
+    });
+
+    var decades = 4, yMaxLog = 0.3;
+    function X(z) { return padL + (z / GEO.L) * plotW; }
+    function Y(v) {
+      var lg = Math.log(Math.max(v, 1e-12) / norm) / Math.LN10;
+      var t = (yMaxLog - lg) / decades;
+      return padT + (t < 0 ? 0 : t > 1 ? 1 : t) * plotH;
+    }
+
+    // ── 눈금 ──
+    var showDec = plotH / decades >= 13;          // 좁으면 데케이드 글자를 생략한다
+    ctx.font = '10px "Segoe UI",sans-serif'; ctx.lineWidth = 1;
+    for (var dd = 0; dd <= decades; dd++) {
+      var yy = padT + (dd / decades) * plotH;
+      ctx.strokeStyle = '#1b2140';
+      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke();
+      if (showDec) {
+        ctx.fillStyle = '#8892b5'; ctx.textAlign = 'right';
+        ctx.fillText('1e' + (Math.round(yMaxLog) - dd), padL - 4, yy + 3);
+      }
+    }
+    ctx.textAlign = 'center';
+    for (var zt = 0; zt <= GEO.L + 0.1; zt += 50) {
+      var xx = X(zt);
+      ctx.strokeStyle = '#1b2140';
+      ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + plotH); ctx.stroke();
+      ctx.fillStyle = '#8892b5'; ctx.fillText((zt / 10).toFixed(0), xx, padT + plotH + 13);
+    }
+    ctx.strokeStyle = '#2a3050'; ctx.strokeRect(padL, padT, plotW, plotH);
+
+    // ── 곡선 ──
+    var floorThresh = norm * 1e-4;                // 수치 바닥 — 아래 구간은 흐리게
+    var diag = { norm: norm, floor: floorThresh, modes: {} };
+    [1, 2, 3].forEach(function (n) {
+      var col = MODE_COL[n];
+      ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([]);
+      var seg = [], curBelow = null, belowCnt = 0;
+      function strokeSeg(pts, below) {
+        if (pts.length < 2) return;
+        ctx.globalAlpha = below ? 0.25 : 1;
+        ctx.beginPath();
+        for (var q = 0; q < pts.length; q++) {
+          if (q === 0) ctx.moveTo(pts[q].x, pts[q].y); else ctx.lineTo(pts[q].x, pts[q].y);
+        }
+        ctx.stroke();
+      }
+      for (var z = 0; z <= GEO.L; z += 1) {
+        var v = amps[n][Math.round(z) + GEO.xLeft];
+        var below = v < floorThresh, pt = { x: X(z), y: Y(v) };
+        if (below) belowCnt++;
+        if (curBelow === null) { curBelow = below; seg = [pt]; }
+        else if (below === curBelow) { seg.push(pt); }
+        else { seg.push(pt); strokeSeg(seg, curBelow); seg = [pt]; curBelow = below; }
+      }
+      strokeSeg(seg, curBelow);
+      ctx.globalAlpha = 1;
+
+      // 이론 점선 — 차단이면 e^{−κz}, 전파면 수평선
+      var kap = M.theoryKappa(n, a, k), kz = M.theoryKz(n, a, k);
+      ctx.strokeStyle = col; ctx.lineWidth = 1.1; ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      if (kap !== null) {
+        // 앵커 창은 앱이 쓰는 κ 창 그대로다 (GEO.KAPPA_WIN='A' ≡ 원본 kappaWindowN)
+        var kw = M.kappaWindow(GEO.KAPPA_WIN, kap);
+        var anchor = amps[n][Math.round(kw.zStart) + GEO.xLeft];
+        for (var z2 = kw.zStart; z2 <= GEO.L; z2 += 1) {
+          var tv = anchor * Math.exp(-kap * (z2 - kw.zStart));
+          if (z2 === kw.zStart) ctx.moveTo(X(z2), Y(tv)); else ctx.lineTo(X(z2), Y(tv));
+        }
+        diag.modes[n] = { kind: '차단', kappa: kap, anchor: anchor, below: belowCnt };
+      } else if (kz !== null) {
+        var base = geoMean(amps[1], Math.round(win.zStart) + GEO.xLeft,
+                                    Math.round(win.zEnd) + GEO.xLeft);
+        var kz1 = M.theoryKz(1, a, k), c1 = M.coupling(1, state.y0OverA);
+        var ratio = (kz1 !== null && kz1 > 1e-12 && c1 > 1e-12 && kz > 1e-12)
+          ? (M.coupling(n, state.y0OverA) / kz) / (c1 / kz1) : null;
+        var h = (ratio === null) ? base : base * ratio;
+        ctx.moveTo(X(win.zStart), Y(h)); ctx.lineTo(X(GEO.L), Y(h));
+        diag.modes[n] = { kind: '전파', kz: kz, height: h, ratio: ratio, below: belowCnt };
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    });
+
+    // ── 범례 (플롯 바깥 위쪽 한 줄) ──
+    ctx.textAlign = 'left'; ctx.font = '10px "Segoe UI",sans-serif';
+    var lx = padL, ly = 12;
+    [1, 2, 3].forEach(function (n) {
+      ctx.strokeStyle = MODE_COL[n]; ctx.lineWidth = 2; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(lx, ly - 3); ctx.lineTo(lx + 13, ly - 3); ctx.stroke();
+      ctx.fillStyle = MODE_COL[n]; ctx.fillText('모드' + n, lx + 16, ly);
+      lx += 52;
+    });
+    ctx.fillStyle = '#8892b5';
+    ctx.fillText('실선 실측 · 점선 이론 · n≥4 미표시', lx + 4, ly);
+
+    // 벽 근사가 무너지면 모드 분해 자체를 믿을 수 없다 — 도선 관에만 해당한다
+    if (side === 'wire') {
+      var q = scene.quality;
+      if (q.dOverLambda > 0.1 || q.wallT > 0.35) {
+        ctx.fillStyle = '#f4a261'; ctx.textAlign = 'right';
+        ctx.font = 'bold 10px "Segoe UI",sans-serif';
+        ctx.fillText('⚠ 벽 근사 무너짐 — 모드 분해 신뢰도 낮음', W - padR, ly);
+      }
+    }
+
+    diag.W = W; diag.H = H; diag.dpr = dpr; diag.plot = plotW.toFixed(1) + '×' + plotH.toFixed(1);
+    diag.win = win;
+    return diag;
+  }
+
   /* ---------------- 배치 ----------------
    * 캔버스 종횡비(520:220)를 컨테이너가 정확히 갖게 만든다 → 레터박스가 생기지 않는다.
    *   행 높이 = (가용 높이 − 열머리 − 캡션 − 행간격) / 3
@@ -920,6 +1140,7 @@
     if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
       grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = ''; grid.style.margin = '';
       grid.classList.remove('smooth');
+      grid.classList.add('modefold');          // 폴백에서는 모드 분해를 접어 둔다
       side.style.flex = ''; side.classList.remove('wide');
       el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
       layoutLog.fallback++; layoutLog.d = null;
@@ -1044,7 +1265,19 @@
         grid.style.margin = '0 auto';
         var cw = d.colW.toFixed(3), rh = d.rowH.toFixed(3);
         grid.style.gridTemplateColumns = LBL_W + 'px ' + (cw + 'px ').repeat(nCols).trim();
-        grid.style.gridTemplateRows = 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
+
+        /* 모드 분해 행 (묶음 B) — 세로 예산에 넣지 않는다.
+         * 높이가 고정 상수 MODE_H 이고 byHeight() 는 이 행의 존재를 모른다.
+         * 그래서 '그래프가 커짐 → 캔버스가 줄어듦 → 예산이 남음 → 그래프가 또 커짐'
+         * 순환이 성립할 수 없다 (§10-1-2). 캡션과 정확히 같은 취급이다 —
+         * 펼치면 그리드 크기가 변하지 않고 body 가 아래로 스크롤된다.
+         * 접힌 상태(기본)의 그리드는 이 행이 없던 때와 완전히 같다. */
+        d.modeOpen = (state.tab === 3) && !grid.classList.contains('modefold');
+        d.modeH = d.modeOpen ? MODE_H : 0;
+        grid.style.gridTemplateRows = d.modeOpen
+          ? 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px ' + MODE_H + 'px auto'
+          : 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
+        modeDirty = true;
       }
       return d;
     }
@@ -1250,6 +1483,14 @@
       el('capBtn').textContent = on ? '캡션 ▸' : '캡션 ▾';
       layout(); markDirty();
     });
+    // 모드 분해 접기 — 캡션과 같은 패턴이다. 펼쳐도 그리드 크기가 변하지 않고
+    // body 가 아래로 스크롤된다 (배율 1.000 · pixelated · 좌우 열 대응 전부 유지).
+    el('modeBtn').addEventListener('click', function () {
+      var on = el('compare').classList.toggle('modefold');
+      document.body.classList.toggle('modeopen', !on);
+      el('modeBtn').textContent = on ? '모드 분해 ▸' : '모드 분해 ▾';
+      layout(); markDirty();
+    });
     el('dbgBtn').addEventListener('click', function () {
       var on = el('debugbox').classList.toggle('folded');
       el('dbgBtn').textContent = on ? '?debug=1 ▸' : '?debug=1 ▾';
@@ -1284,6 +1525,7 @@
     });
 
     el('compare').classList.add('capfold');      // 캡션 기본 접힘
+    el('compare').classList.add('modefold');     // 모드 분해 기본 접힘 (§10-1-3-a)
     if (DEBUG) { el('debugbox').style.display = ''; el('scatAllRow').style.display = ''; }
     el('nImg').max = GEO.N_MAX;
     el('scatAll').checked = !state.scatBand;

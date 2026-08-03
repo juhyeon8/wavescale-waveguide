@@ -109,6 +109,20 @@ button:hover { background:#252d54; }
 /* 축소가 불가피할 때만 layout()이 켠다. 최근접은 축소 구간에서 소스 행을 버려
    단일 행인 1px 벽선을 통째로 지운다 — 흐릿하더라도 남기는 쪽이 정직하다. */
 .compare.smooth .panel canvas { image-rendering:auto; }
+/* 모드 분해 패널 (묶음 B) — 필드 캔버스와 규칙이 다르다.
+   선 그래프는 표시크기×DPR 백킹이라야 선명하다. pixelated 도 흰 배경도 쓰지 않는다.
+   .compare.smooth 의 image-rendering 전환 대상도 아니다 (.panel canvas 에만 걸린다). */
+.mpanel { min-height:0; min-width:0; display:flex; position:relative; }
+.mpanel canvas { width:100%; height:100%; display:block;
+  background:#0e1326; border:1px solid var(--line); border-radius:4px; }
+/* 접이식, 기본 접힘 — (C) 수렴 스캔과 같은 패턴. 접힌 상태는 도입 전과 완전히 같다.
+   펼치면 그리드(세 캔버스 행)는 그대로이고 body 가 아래로 스크롤된다 = 배율 1.000 유지. */
+.compare.modefold #mode-label, .compare.modefold .mpanel { display:none; }
+/* 행 라벨은 sticky — 그래프까지 스크롤해 내려가도 무엇을 보고 있는지 붙어 있다. */
+#mode-label { position:sticky; top:0; z-index:6; background:var(--bg); align-self:start;
+  padding-top:2px; }
+body.modeopen { height:auto; min-height:100%; overflow-y:auto; }
+body.modeopen .sidebar-scroll { overflow:visible; }
 .capcell { font-size:0.68rem; line-height:1.45; color:#7e879e; }
 .capcell p { margin:0 0 4px; }
 .capcell p:last-child { margin-bottom:0; }

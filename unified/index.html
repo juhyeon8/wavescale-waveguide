@@ -114,10 +114,24 @@
     <div class="panel col-image"><canvas id="cv-tot-image"></canvas></div>
     <div class="panel col-wire"><canvas id="cv-tot-wire"></canvas></div>
 
+    <!-- 모드 분해 (묶음 B) — 접이식, 기본 접힘. (C) 수렴 스캔과 같은 패턴이다.
+         세로 예산에 넣지 않는다 (§10-1-2 순환 방지) — 높이가 고정 상수 MODE_H 이고,
+         펼치면 그리드 크기가 아니라 body 가 아래로 스크롤된다. 캡션과 같은 취급이다.
+         필드 캔버스가 아니므로 정수 스냅·pixelated 를 적용하지 않는다 (fitModeCv). -->
+    <div class="rlabel" id="mode-label">모드 분해<span class="sc">|cₙ(z)| 로그</span></div>
+    <div class="mpanel col-image" id="mode-cell-image"><canvas id="cv-mode-image"></canvas></div>
+    <div class="mpanel col-wire" id="mode-cell-wire"><canvas id="cv-mode-wire"></canvas></div>
+
     <!-- 캡션 행 — 열 단위. §8-3의 세 문구를 그대로 쓴다.
          기본 접힘: 정지 텍스트라 한 번 읽으면 되고, 세 캔버스 행이 함께 보이는 것이
          비교의 핵심이다. 펼치면 그만큼 캔버스가 작아진다(배치 제약 1 참조). -->
-    <div class="rlabel"><button id="capBtn" class="capbtn" type="button">캡션 ▸</button></div>
+    <!-- 두 토글을 한 칸에 둔다. 별도 머리글 행을 만들면 접힌 기본 상태에서 32px 를
+         더 먹는데, 탭 3의 세로 여유는 17px 뿐이고 body 는 overflow:hidden 이라
+         캡션 버튼이 잘린다. '접힘 = 현행과 동일'을 지키는 쪽을 택했다. -->
+    <div class="rlabel">
+      <button id="capBtn" class="capbtn" type="button">캡션 ▸</button>
+      <button id="modeBtn" class="capbtn" type="button">모드 분해 ▸</button>
+    </div>
     <div class="capcell col-image" id="cap-image">
       <p>영상 합은 벽 사이에서만 해를 재현합니다. 무한히 뻗은 도체판 바깥의 참값은 0이지만,
       유한 개의 영상 합은 그 0을 만들지 못합니다. 그래서 이 영역은 표시하지 않습니다.
