@@ -98,35 +98,37 @@
 
   <!-- ===== 우 비교 그리드 3×2 ===== -->
   <div class="compare" id="compare">
-    <div class="hcell"></div>
+    <!-- rl-*/row-* 클래스는 탭 1·2의 2×2 배치가 칸을 지목하는 데 쓴다 (style.css .g2x2).
+         탭 3에서는 아무 효과가 없다 — 문서 순서 그대로 3행 2열이다. -->
+    <div class="hcell" id="head-blank"></div>
     <div class="hcell col-image" id="head-image">영상법 <em>무한 평행판 · 이상적 도체</em></div>
     <div class="hcell col-wire" id="head-wire">도선 관 <em>유한 길이 · 양 끝 열림</em></div>
 
-    <div class="rlabel">입사파<span class="sc" id="scale-inc"></span></div>
-    <div class="panel col-image"><canvas id="cv-inc-image"></canvas></div>
-    <div class="panel col-wire"><canvas id="cv-inc-wire"></canvas></div>
+    <div class="rlabel rl-inc">입사파<span class="sc" id="scale-inc"></span></div>
+    <div class="panel row-inc col-image"><canvas id="cv-inc-image"></canvas></div>
+    <div class="panel row-inc col-wire"><canvas id="cv-inc-wire"></canvas></div>
 
-    <div class="rlabel">산란파<span class="sc" id="scale-scat"></span></div>
-    <div class="panel col-image"><canvas id="cv-scat-image"></canvas></div>
-    <div class="panel col-wire"><canvas id="cv-scat-wire"></canvas></div>
+    <div class="rlabel rl-scat">산란파<span class="sc" id="scale-scat"></span></div>
+    <div class="panel row-scat col-image"><canvas id="cv-scat-image"></canvas></div>
+    <div class="panel row-scat col-wire"><canvas id="cv-scat-wire"></canvas></div>
 
-    <div class="rlabel">전체장<span class="sc" id="scale-tot"></span></div>
-    <div class="panel col-image"><canvas id="cv-tot-image"></canvas></div>
-    <div class="panel col-wire"><canvas id="cv-tot-wire"></canvas></div>
+    <div class="rlabel rl-tot">전체장<span class="sc" id="scale-tot"></span></div>
+    <div class="panel row-tot col-image"><canvas id="cv-tot-image"></canvas></div>
+    <div class="panel row-tot col-wire"><canvas id="cv-tot-wire"></canvas></div>
 
     <!-- 모드 분해 (묶음 B) — 탭 3에서 상시 표시. 토글 없음.
          세로 예산에 넣지 않는다 (§10-1-2 순환 방지) — 높이가 고정 상수 MODE_H 이고
          byHeight() 는 이 행을 모른다. 세 필드 캔버스만으로 배율이 결정되고,
          모드 그래프는 그 아래로 흘러 페이지 스크롤에 들어간다.
          필드 캔버스가 아니므로 정수 스냅·pixelated 를 적용하지 않는다 (fitModeCv). -->
-    <div class="rlabel" id="mode-label">모드 분해<span class="sc">|cₙ(z)| 로그</span></div>
-    <div class="mpanel col-image" id="mode-cell-image"><canvas id="cv-mode-image"></canvas></div>
-    <div class="mpanel col-wire" id="mode-cell-wire"><canvas id="cv-mode-wire"></canvas></div>
+    <div class="rlabel rl-mode" id="mode-label">모드 분해<span class="sc">|cₙ(z)| 로그</span></div>
+    <div class="mpanel row-mode col-image" id="mode-cell-image"><canvas id="cv-mode-image"></canvas></div>
+    <div class="mpanel row-mode col-wire" id="mode-cell-wire"><canvas id="cv-mode-wire"></canvas></div>
 
     <!-- 캡션 행 — 열 단위. §8-3의 세 문구를 그대로 쓴다.
          기본 접힘: 정지 텍스트라 한 번 읽으면 되고, 세 캔버스 행이 함께 보이는 것이
          비교의 핵심이다. 펼치면 그만큼 캔버스가 작아진다(배치 제약 1 참조). -->
-    <div class="rlabel"><button id="capBtn" class="capbtn" type="button">캡션 ▸</button></div>
+    <div class="rlabel rl-cap"><button id="capBtn" class="capbtn" type="button">캡션 ▸</button></div>
     <div class="capcell col-image" id="cap-image">
       <p>영상 합은 벽 사이에서만 해를 재현합니다. 무한히 뻗은 도체판 바깥의 참값은 0이지만,
       유한 개의 영상 합은 그 0을 만들지 못합니다. 그래서 이 영역은 표시하지 않습니다.

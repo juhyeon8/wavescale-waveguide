@@ -166,7 +166,7 @@
 
     // 모드 분해 — |cₙ(z)| 는 위상과 무관하므로 애니메이션 프레임마다 다시 그리지 않는다.
     // 다시 그릴 조건은 재계산(recompute)과 배치 변경(layout) 둘뿐이다.
-    if (state.tab === 3 && modeDirty) {
+    if (!el('compare').classList.contains('nomode') && modeDirty) {
       // 진단값은 모듈 변수에 남긴다 — ?debug=1 덤프는 30프레임마다 돌아서
       // 이 프레임의 dbg 객체를 보면 대부분 놓친다.
       sidesOf(state.tab).forEach(function (side) { modeDiag[side] = drawModeGraph(side); });
@@ -340,14 +340,15 @@
     if (!ld) {
       L.push('  (폴백 배치 — 행 없음)');
     } else if (!ld.modeH) {
-      L.push('  행 없음 (탭 3 전용) — 필드 배율 ' + ld.scale.toFixed(3) +
-             (ld.scale >= 1 ? ' ✓' : ' ⚠ 축소'));
+      L.push('  행 없음 — 필드 배율 ' + ld.scale.toFixed(3) + (ld.scale >= 1 ? ' ✓' : ' ⚠ 축소'));
     } else {
-      L.push('  상시 표시 · 행 높이 ' + ld.modeH + 'px (고정 상수 — 세로 예산 밖)' +
-             '  · 필드 배율 ' + ld.scale.toFixed(3) +
-             (ld.scale >= 1 ? ' ✓ 영향 없음' : ' ⚠ 축소') +
-             '  · rowH ' + ld.rowH.toFixed(1) +
-             ' (모드 행이 없던 커밋 6c207f4 접힘 상태와 같아야 한다)');
+      L.push(state.tab === 3
+        ? ('  탭 3 · 전체장 아래 상시 표시 · 행 높이 ' + ld.modeH.toFixed(1) +
+           'px (고정 상수 — 세로 예산 밖)  · 필드 배율 ' + ld.scale.toFixed(3) +
+           (ld.scale >= 1 ? ' ✓ 영향 없음' : ' ⚠ 축소') + '  · rowH ' + ld.rowH.toFixed(1))
+        : ('  탭 ' + state.tab + ' · 2×2 우하 칸 · 행 높이 ' + ld.modeH.toFixed(1) +
+           'px (= rowH, 필드 칸과 같은 트랙)  · 필드 배율 ' + ld.scale.toFixed(3) +
+           (ld.scale >= 1 ? ' ✓' : ' ⚠ 축소')));
       sidesOf(state.tab).forEach(function (side) {
         var g = modeDiag[side];
         if (!g) { L.push('  ' + side + ': (미표시)'); return; }
@@ -1195,15 +1196,20 @@
     if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
       grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = ''; grid.style.margin = '';
       grid.classList.remove('smooth');
-      grid.classList.add('nomode');            // 폴백에서는 모드 분해를 두지 않는다
+      // 폴백에서는 모드 분해도 2×2 도 두지 않는다 — 배치를 CSS에 온전히 맡긴다.
+      // g2x2 를 남기면 명시적 칸 지정이 CSS 기본 3열 템플릿과 섞여 어긋난다.
+      grid.classList.add('nomode');
+      grid.classList.remove('g2x2');
       side.style.flex = ''; side.classList.remove('wide');
       el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
       layoutLog.fallback++; layoutLog.d = null;
       return;
     }
 
-    // 모드 분해 행은 탭 3 전용이다. 폴백에서 붙인 nomode 를 여기서 되돌린다.
-    grid.classList.toggle('nomode', state.tab !== 3);
+    // 모드 분해는 탭 1·2·3 전부에 있다 (탭 1·2 는 2×2 의 우하 칸).
+    // 폴백에서 붙인 nomode 를 여기서 되돌린다.
+    grid.classList.remove('nomode');
+    grid.classList.toggle('g2x2', state.tab === 1 || state.tab === 2);
 
     // 탭 4는 필드 캔버스가 없다. 차트는 표시 크기 × DPR 로 백킹을 맞추는
     // 별도 규칙을 쓴다 (원본 script.js:fitGraph) — 정수 스냅을 적용하지 않는다.
@@ -1229,12 +1235,19 @@
     var colWmin = Math.ceil(GEO.Nx / dpr);          // 제약 1
     var availW = main.clientWidth;
 
-    // 열 수 — 탭 1·2는 1열, 탭 3은 2열. 그리드 열은 라벨 1 + nCols 이므로 gap 은 nCols 개.
-    var nCols = sidesOf(state.tab).length;
+    /* 배치 두 종류
+     *   탭 3    라벨 열 1 + 캔버스 열 2, 캔버스 3행   (그리드 열 3 → gap 2개 = nCols)
+     *   탭 1·2  라벨을 위로 올린 2×2                  (그리드 열 2 → gap 1개 = nCols−1)
+     * 2×2 는 라벨 열(56px)이 없어 탭 3보다 가로를 66px 덜 쓴다. 가로가 바인딩이므로
+     * 그 차이가 배율 1.000 을 지키는 여유가 된다. */
+    var two = (state.tab === 1 || state.tab === 2);
+    var nCols = two ? 2 : sidesOf(state.tab).length;
+    var lblW = two ? 0 : LBL_W;
+    var gapsX = two ? nCols - 1 : nCols;
 
     // 사이드바에 sw 를 남겼을 때 가로가 허용하는 컬럼 폭
     function byWidth(sw) {
-      return Math.floor((availW - sw - GAP_X - LBL_W - nCols * COL_GAP) / nCols);
+      return Math.floor((availW - sw - GAP_X - lblW - gapsX * COL_GAP) / nCols);
     }
     /* 세로 예산은 뷰포트 산술로 낸다 — main.clientHeight 를 쓰면 안 된다.
      * 캡션을 예산에서 제외하고 펼치면 페이지가 아래로 스크롤되게 했으므로,
@@ -1249,11 +1262,21 @@
       used += fc.offsetHeight + parseFloat(window.getComputedStyle(fc).marginTop);
       return document.documentElement.clientHeight - used;
     }
+    // 2×2 의 행 라벨 높이. 짧은 한 줄이라 컬럼 폭에 의존하지 않는다 —
+    // 열머리(headH)를 실측하는 것과 같은 이유로 안전하다 (§10-1-2).
+    function labelRowH() {
+      var e = document.querySelector('.compare .rlabel');
+      return e ? e.offsetHeight : 30;
+    }
+
     // 캡션 높이는 예산에 넣지 않는다 (②) — 펼쳐도 그리드 크기가 변하지 않는다.
     function byHeight() {
       // 숨긴 열머리는 offsetHeight 0 이므로 보이는 쪽이 그대로 최댓값이 된다
       var headH = Math.max(el('head-image').offsetHeight, el('head-wire').offsetHeight);
-      var rowH = Math.floor((budgetH() - headH - 4 * GAP_Y) / 3);
+      // 2×2 는 캔버스 2행 + 그 위의 라벨 2줄 (트랙 6, gap 5). 3행보다 세로가 넉넉하다.
+      var rowH = two
+        ? Math.floor((budgetH() - headH - 2 * labelRowH() - 5 * GAP_Y) / 2)
+        : Math.floor((budgetH() - headH - 4 * GAP_Y) / 3);
       return Math.floor(rowH * GEO.Nx / GEO.Ny);
     }
 
@@ -1300,7 +1323,7 @@
             });
           return null;
         }
-        d.gridW = LBL_W + nCols * d.colW + nCols * COL_GAP;
+        d.gridW = lblW + nCols * d.colW + gapsX * COL_GAP;
         // 제약 4 — 남는 폭은 사이드바가 흡수하되 상한을 넘지 않는다
         d.sideW = Math.max(d.relaxed ? SIDE_MIN : SIDE_2COL,
                     Math.min(SIDE_MAX, Math.floor(availW - d.gridW - GAP_X)));
@@ -1322,7 +1345,9 @@
         // ⑤ 남는 폭 안에서 그리드를 가운데로 (왼쪽으로 몰리면 사이드바와 붙어 보인다)
         grid.style.margin = '0 auto';
         var cw = d.colW.toFixed(3), rh = d.rowH.toFixed(3);
-        grid.style.gridTemplateColumns = LBL_W + 'px ' + (cw + 'px ').repeat(nCols).trim();
+        grid.style.gridTemplateColumns = two
+          ? cw + 'px ' + cw + 'px'
+          : LBL_W + 'px ' + (cw + 'px ').repeat(nCols).trim();
 
         /* 모드 분해 행 (묶음 B) — 세로 예산에 넣지 않는다.
          * 높이가 고정 상수 MODE_H 이고 byHeight() 는 이 행의 존재를 모른다.
@@ -1330,10 +1355,17 @@
          * 순환이 성립할 수 없다 (§10-1-2). 캡션과 정확히 같은 취급이다 —
          * 펼치면 그리드 크기가 변하지 않고 body 가 아래로 스크롤된다.
          * 접힌 상태(기본)의 그리드는 이 행이 없던 때와 완전히 같다. */
-        d.modeH = (state.tab === 3) ? MODE_H : 0;
-        grid.style.gridTemplateRows = d.modeH
-          ? 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px ' + MODE_H + 'px auto'
-          : 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
+        if (two) {
+          // 2×2 — 모드 그래프는 전체장과 같은 행이므로 높이가 rowH 다. 예산 밖 상수가
+          // 아니라 필드 칸과 같은 트랙이라 순환이 생기지 않는다 (칸을 나눠 쓸 뿐이다).
+          d.modeH = d.rowH;
+          grid.style.gridTemplateRows = 'auto auto ' + rh + 'px auto ' + rh + 'px auto';
+        } else {
+          d.modeH = (state.tab === 3) ? MODE_H : 0;
+          grid.style.gridTemplateRows = d.modeH
+            ? 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px ' + MODE_H + 'px auto'
+            : 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
+        }
         modeDirty = true;
       }
       return d;
@@ -1378,8 +1410,20 @@
         (side.scrollHeight > side.clientHeight ? '있음' : '없음') + '  2열 ' + (side.classList.contains('wide') ? 'ON' : 'OFF'),
       'compare:   offsetWidth ' + grid.offsetWidth + ' scrollWidth ' + grid.scrollWidth +
         '  넘침 ' + (grid.scrollWidth > grid.offsetWidth ? '있음' : '없음') +
-        '  실제 캔버스폭 ' + el('cv-tot-image').getBoundingClientRect().width.toFixed(1) +
-        ' 높이 ' + el('cv-tot-image').getBoundingClientRect().height.toFixed(1),
+        '  배치 ' + (grid.classList.contains('g2x2') ? '2×2' : '3행'),
+      // 각 칸의 실제 크기 — 계산값이 아니라 화면이 준 값이다. 2×2 에서 필드 세 칸이
+      // 전부 520×220 이상이어야 배율 1.000 이다 (모드 칸은 필드가 아니라 제외).
+      '칸 실측:   ' + ['inc', 'scat', 'tot', 'mode'].map(function (row) {
+        var out = [];
+        sidesOf(state.tab).forEach(function (side) {
+          var c = el('cv-' + row + '-' + side);
+          if (!c || !c.offsetParent) return;
+          var r = c.getBoundingClientRect();
+          out.push(row + '/' + side + ' ' + r.width.toFixed(1) + '×' + r.height.toFixed(1) +
+                   (row === 'mode' ? '' : (r.width * effDpr() >= GEO.Nx - 0.5 ? '✓' : '⚠')));
+        });
+        return out.join('  ');
+      }).filter(Boolean).join('  |  '),
       'layout():  호출 ' + layoutLog.calls + '회 (적용 ' + layoutLog.applied + ' · 폴백 ' + layoutLog.fallback +
         ') · 마지막 호출 시점의 app-main ' + layoutLog.lastMain,
       '창:        viewport ' + window.innerWidth + 'x' + window.innerHeight +
