@@ -147,12 +147,16 @@
       <table id="metricTable">
         <thead><tr>
           <th>모드</th><th>결합</th><th>상태</th><th>Griffiths 이론</th>
-          <th title="정확해를 같은 측정 코드로 잰 값. 100.0%가 아니면 측정 창·코드의 문제입니다">대조군(모드합)</th>
+          <th title="정확해(무한 모드합)를 영상법·도선관과 똑같은 측정 코드로 잰 값. 100.0%가 아니면 방법이 아니라 측정 코드의 문제다.">대조군(모드합)</th>
           <th>영상법</th><th>도선 관</th>
         </tr></thead>
         <tbody id="metricBody"></tbody>
       </table>
       <div class="t4-note" id="winNote"></div>
+      <!-- % 의 기준을 화면에 밝힌다 — 무엇 대비 몇 %인지가 안 보여 오해가 생겼다. -->
+      <div class="t4-note" id="ratioNote">대조군·영상법·도선 관의 % = (측정한 κ 또는 k_z) ÷ (Griffiths 이론값) × 100.
+      100%면 이론과 완전 일치. 대조군은 정확해를 같은 측정 코드로 잰 값이라
+      100.0%가 정상이며, 이것이 측정 코드가 올바름을 보증한다.</div>
       <p class="capcell">전파 영역에서는 진행 파수 k_z를, 차단 영역에서는 감쇠율 κ를 재어 Griffiths
       닫힌 해와 비교합니다. 두 방법이 서로 비슷한 것이 아니라, 각각이 같은
       정확해로 수렴하는 것을 봅니다.</p>
@@ -160,11 +164,16 @@
 
     <div class="t4-chart" id="t4chart">
       <div class="t4-chartbox"><canvas id="cvDisp"></canvas><div id="ptTip" class="pttip"></div></div>
+      <!-- 범례 두 줄 — 색이 모드를, 모양이 종류를 나타낸다는 것을 나눠 보인다.
+           내용은 ui.js:buildChartLegend() 가 MODE_COL 에서 만든다 (색 정의는 한 곳). -->
+      <div class="t4-legend" id="chartLegend"></div>
       <div class="t4-chartfoot">
         <button id="clearPts" type="button">측정점 지우기</button>
         <span class="t4-note" id="ptInfo"></span>
       </div>
-      <p class="capcell">k_z와 κ는 같은 양의 두 얼굴입니다 — k_z² = k² − k_c²가 양수면 진행 파수,
+      <p class="capcell">곡선은 Griffiths 닫힌 해이고, 점은 영상법·도선관이 각 λ/a에서 실제로
+      측정한 값입니다. 점이 곡선 위에 놓이면 그 방법이 이론과 일치한다는 뜻입니다.
+      k_z와 κ는 같은 양의 두 얼굴입니다 — k_z² = k² − k_c²가 양수면 진행 파수,
       음수면 그 크기가 감쇠율입니다. 파장이 길어질수록 모드가 3 → 2 → 1 순서로
       축 아래로 내려가고, 모두 내려간 뒤가 완전 차단입니다.</p>
     </div>

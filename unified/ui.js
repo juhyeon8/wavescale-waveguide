@@ -384,11 +384,20 @@
   var MODE_COL = { 1: '#4a90d9', 2: '#3fb56b', 3: '#e8913a' };   // graph.js 규약 재사용
   var perCm = function (perCell) { return perCell * 10; };        // 셀(=mm) → /cm
 
-  function cellFor(r, thy) {
+  /* 각 방법이 실제로 잰 절대값을 % 옆에 병기한다. Griffiths 열과 같은 단위(/cm)라
+   * "이론 0.2894 · 영상법 0.2891 → 99.9%" 가 한 줄에서 눈으로 확인된다.
+   * 셀 단위 값은 ?debug=1 에만 둔다 (현행 유지).
+   *
+   * 이 병기가 R² 의 한계를 눈에 보이게 한다 — 모드 3 영상법은 R² 0.9998 인데
+   * 105.1% 라 경고색이다. R² 는 "직선에 잘 맞는가"만 보고 "기울기가 편향됐는가"는
+   * 잡지 못한다 (설계 §11-8). 절대값을 나란히 두면 그 편향이 숫자로 드러난다.
+   * 측정 불가 칸은 사유만 남긴다 — 절대값이 없으므로 병기할 것도 없다. */
+  function cellFor(r, thy, sym) {
     if (!r) return { text: '—', cls: 'na' };
     if (r.value === null) return { text: r.reason, cls: 'na' };
     var ratio = r.value / thy;
-    var txt = (ratio * 100).toFixed(1) + '%  R² ' + (r.r2 === undefined ? '—' : r.r2.toFixed(4));
+    var txt = sym + '=' + perCm(r.value).toFixed(4) + ' /cm  (' +
+              (ratio * 100).toFixed(1) + '%  R² ' + (r.r2 === undefined ? '—' : r.r2.toFixed(4)) + ')';
     // R²가 높아도 5%를 넘으면 칠한다 — R²는 계통 편향을 잡지 못한다 (설계 §11-8)
     return { text: txt, cls: Math.abs(ratio - 1) > 0.05 ? 'bad' : 'hi', ratio: ratio };
   }
@@ -416,7 +425,7 @@
           : 'k_z = ' + perCm(row.kz).toFixed(4) + ' /cm   (λ_g = ' + (2 * Math.PI / row.kz / 10).toFixed(1) + ' cm)',
           cls: '' });
         ['sum', 'image', 'wire'].forEach(function (key) {
-          var c = cellFor(row[key], thy);
+          var c = cellFor(row[key], thy, cut ? 'κ' : 'k_z');
           // 대조군은 100.0% 가 정상이라 정보가 없다 → 흐리게. 벗어나면 강조된다.
           if (key === 'sum' && c.ratio !== undefined && Math.abs(c.ratio - 1) < 0.0005) c.cls = 'dim';
           cells.push(c);
@@ -486,6 +495,31 @@
     return dpr;
   }
 
+  /* (B) 범례 — 두 줄로 나누는 것이 요점이다.
+   *   1줄  색   = 모드      (모드 1·2·3)
+   *   2줄  모양 = 종류      (실선 이론 / 채운 원 영상법 / 빈 사각형 도선 관)
+   * 곡선이 무엇인지 그림 안에서 알 수 없던 것을 고친다. 마커 모양은 drawDispersion
+   * 이 실제로 그리는 것과 같다 — 원은 채우고 사각형은 선만 긋는다.
+   * 색 정의는 MODE_COL 한 곳뿐이므로 CSS 에 색을 적지 않고 여기서 만든다. */
+  function buildChartLegend() {
+    function it(styleTag, cls, label, col) {
+      return '<span class="lg-it" style="color:' + col + '">' +
+             '<' + styleTag + ' class="' + cls + '"></' + styleTag + '>' +
+             '<span style="color:var(--mut)">' + label + '</span></span>';
+    }
+    el('chartLegend').innerHTML =
+      '<div class="lg-row"><span class="lg-cap">색 = 모드</span>' +
+        [1, 2, 3].map(function (n) {
+          return it('i', 'lg-line', '모드 ' + n, MODE_COL[n]);
+        }).join('') +
+      '</div>' +
+      '<div class="lg-row"><span class="lg-cap">모양 = 종류</span>' +
+        it('i', 'lg-line', 'Griffiths 이론', '#aab2cf') +
+        it('i', 'lg-dot',  '영상법 측정',    '#aab2cf') +
+        it('i', 'lg-sq',   '도선 관 측정',   '#aab2cf') +
+      '</div>';
+  }
+
   var chartBox = null, dispDiag = null;
   function drawDispersion() {
     var cv = el('cvDisp');
@@ -519,8 +553,28 @@
     ctx.textAlign = 'center';
     for (var ul = 1.0; ul <= U1 + 1e-9; ul += 0.5) ctx.fillText(ul.toFixed(1), X(ul), H - padB + 15 * dpr);
     ctx.fillText('λ/a', (padL + W - padR) / 2, H - padB + 28 * dpr);
-    ctx.save(); ctx.translate(12 * dpr, (padT + H - padB) / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText('축 위 k_z / k_c1   ·   축 아래 κ / k_c1', 0, 0); ctx.restore();
+
+    /* 세로축 — 위아래가 각각 무엇인지 축 옆에 적는다. 캡션을 안 읽어도 읽히게 하는 것이
+     * 목적이다. 0선 위는 양수(진행 파수), 아래는 음수(감쇠율)다.
+     * 반쪽 높이가 글자보다 짧으면 짧은 형태로 떨어뜨린다 — 차트 높이가 가변이라
+     * (min 220) 긴 문구가 서로 겹치거나 축 밖으로 밀려나는 것을 막는다. */
+    var y0px = Y(0);
+    [{ lab: '축 위 · 진행 파수  k_z / k_c1', shortLab: '진행 k_z / k_c1',
+       mid: (padT + y0px) / 2, half: y0px - padT },
+     { lab: '축 아래 · 감쇠율  κ / k_c1',    shortLab: '감쇠 κ / k_c1',
+       mid: (y0px + H - padB) / 2, half: (H - padB) - y0px }].forEach(function (s) {
+      var txt = (ctx.measureText(s.lab).width <= s.half - 6 * dpr) ? s.lab : s.shortLab;
+      if (ctx.measureText(txt).width > s.half) return;      // 그래도 안 들어가면 생략
+      ctx.save(); ctx.translate(12 * dpr, s.mid); ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#8892b5';
+      ctx.fillText(txt, 0, 0); ctx.restore();
+    });
+
+    // 0선이 무엇인지 — 오른쪽 끝 위. 이 구간은 세 곡선이 모두 0선 아래라 비어 있다
+    // (u=3.0 에서 −0.745 / −1.886 / −2.926).
+    ctx.fillStyle = '#aab2cf'; ctx.textAlign = 'right';
+    ctx.fillText('차단 문턱 (k_z = 0)', W - padR - 5 * dpr, y0px - 5 * dpr);
+    ctx.textAlign = 'center';
 
     // 이론 곡선 3개 — 공식이라 비용 0. 분기별 점 개수를 세어 진단에 남긴다.
     dispDiag = { y0px: Y(0), topPx: padT, botPx: H - padB, dpr: dpr, branches: {} };
@@ -573,8 +627,8 @@
 
     el('ptInfo').textContent = '측정점 ' + pts.length + '개 / 상한 ' + PT_MAX +
       (pts.length >= PT_MAX ? ' (상한 도달 — 오래된 것부터 제거)' : '') +
-      (ptsOut ? '  ·  범위 밖 ' + ptsOut + '개' : '') +
-      '  ·  영상법 ● / 도선관 □';
+      (ptsOut ? '  ·  범위 밖 ' + ptsOut + '개' : '');
+    // 영상법 ● / 도선관 □ 는 범례로 옮겼다 (Griffiths 이론 실선과 한 줄로 묶기 위해)
   }
 
   function chartTip(ev) {
@@ -1479,6 +1533,7 @@
     // 숨겨진 창은 rAF 가 멈춰 스캔이 진행되지 않는다. 진단용 수동 구동 훅.
     if (DEBUG) window.__scan = { run: scanRun, step: scanStep, data: scan };
     scanInfo();
+    buildChartLegend();
     el('cvDisp').addEventListener('mousemove', chartTip);
     el('cvDisp').addEventListener('mouseleave', function () { el('ptTip').style.display = 'none'; });
     // 캡션 접기 — 펼치면 세로를 먹고, 컬럼 폭이 행 높이에서 역산되므로 캔버스가 작아진다
