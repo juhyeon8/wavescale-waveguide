@@ -11,7 +11,7 @@
     a: 60, lambda: 144, y0OverA: 0.500,
     N: GEO.N, cesaro: GEO.CESARO, awAuto: GEO.AW_AUTO, aw: GEO.aw, scatBand: GEO.SCAT_BAND,
     dAutoOn: true, dManual: 5,
-    gamma: 0.4, phase: 0, dPhi: 0.15, paused: false, singleScale: false,
+    gamma: 0.4, phase: 0, dPhi: 0.15, paused: false, singleScale: false, rulerOn: false,
     tab: 3          // 1 영상법 / 2 도선관 / 3 나란히. 슬라이더 상태는 탭을 넘어 유지된다.
   };
 
@@ -156,7 +156,7 @@
     ['inc', 'scat', 'tot'].forEach(function (row) {
       sidesOf(state.tab).forEach(function (side) {   // 숨긴 열은 그리지 않는다
         var id = 'cv-' + row + '-' + side;
-        var opts = (row === 'tot') ? { ruler: rulerS } : {};
+        var opts = (row === 'tot' && state.rulerOn) ? { ruler: rulerS } : {};
         var info = R.drawPanel(ctxOf(id), scenes[side], row, scales[row], state.gamma, state.phase, opts);
         info.labelBoxes = syncLabels(id, info.labels);
         if (DEBUG) dbg.panels[id] = info;
@@ -320,7 +320,7 @@
       var p = dbg.panels['cv-tot-' + side];
       return p && p.ruler ? side + ' x[' + p.ruler.x0.toFixed(1) + ',' + p.ruler.x1.toFixed(1) + ']' : null;
     }).filter(Boolean).join('  ');
-    L.push('눈금자 ' + rulerS.kind + '  ' + rul +
+    L.push('눈금자 ' + rulerS.kind + (state.rulerOn ? '  ' + rul : '  (표시 꺼짐)') +
            '  길이=' + rulerS.len.toFixed(3) + '셀  이론=' + rulerS.theory.toFixed(6));
     L.push('스케일 inc=' + scales.inc.toExponential(4) + ' scat=' + scales.scat.toExponential(4) +
            ' tot=' + scales.tot.toExponential(4));
@@ -1141,9 +1141,39 @@
    * 눈금자가 전부 같고, 슬라이더 상태도 탭을 넘어 유지된다 (v1 §10-0).
    * 두 Scene 은 탭과 무관하게 항상 계산한다 — 측정값과 읽기값이 탭에 따라
    * 달라지면 "같은 입력이 양쪽을 동시에 구동한다"는 주장이 깨진다. */
+  /* 탭별 컨트롤 활성/비활성 (§16 미검증 2에서 나온 것).
+   * 탭 1에서 도선 관 컨트롤이, 탭 2에서 영상법 컨트롤이 작동하는 척 보였다.
+   *
+   * **거르는 것은 표시뿐이다.** 두 Scene 은 탭과 무관하게 항상 계산한다 (v1 §10-0) —
+   * 계산을 탭에 매면 "같은 입력이 양쪽을 동시에 구동한다"는 주장이 깨진다.
+   *   컨트롤   → disabled + .off (흐리게). 상태값은 그대로 유지된다
+   *   읽기값·경고 배지 → 숨김. 값 자체는 계속 갱신된다
+   * 수동 d · 수동 a_w 는 자동 체크박스에도 매여 있으므로 두 조건을 함께 본다 —
+   * 탭을 되돌릴 때 자동 ON 인 슬라이더가 살아나면 안 된다. */
+  function syncTabControls() {
+    var imgOn = (state.tab !== 2), wireOn = (state.tab !== 1);
+    el('grp-image').classList.toggle('off', !imgOn);
+    el('grp-wire').classList.toggle('off', !wireOn);
+    el('noteImgOnly').style.display = imgOn ? 'none' : '';
+    el('noteWireOnly').style.display = wireOn ? 'none' : '';
+
+    el('nImg').disabled = !imgOn;
+    el('cesaro').disabled = !imgOn;
+    el('dAuto').disabled = !wireOn;
+    el('awAuto').disabled = !wireOn;
+    el('dMan').disabled = !wireOn || state.dAutoOn;
+    el('awMan').disabled = !wireOn || state.awAuto;
+
+    el('plateVal').style.display = imgOn ? '' : 'none';
+    el('deltaVal').style.display = wireOn ? '' : 'none';
+    el('wallTVal').style.display = wireOn ? '' : 'none';
+    el('warnBox').style.display = wireOn ? '' : 'none';
+  }
+
   function setTab(n) {
     var was = state.tab;
     state.tab = n;
+    syncTabControls();
     var grid = el('compare');
     grid.classList.toggle('only-image', n === 1);
     grid.classList.toggle('only-wire', n === 2);
@@ -1174,12 +1204,16 @@
     });
     el('cesaro').addEventListener('change', function (e) { state.cesaro = e.target.checked; recompute(); });
     el('awAuto').addEventListener('change', function (e) {
-      state.awAuto = e.target.checked; el('awMan').disabled = state.awAuto; recompute();
+      state.awAuto = e.target.checked; syncTabControls(); recompute();
     });
     el('dAuto').addEventListener('change', function (e) {
-      state.dAutoOn = e.target.checked; el('dMan').disabled = state.dAutoOn; recompute();
+      state.dAutoOn = e.target.checked; syncTabControls(); recompute();
     });
     el('singleScale').addEventListener('change', function (e) { state.singleScale = e.target.checked; recompute(); });
+    // 눈금자는 표시 전용이다 — rulerSpec 은 계속 돌고 그리기만 거른다. 재계산 불필요.
+    el('rulerOn').addEventListener('change', function (e) {
+      state.rulerOn = e.target.checked; markDirty(); drawFrame();
+    });
     el('measBtn').addEventListener('click', bench);
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
       if (!b.disabled) b.addEventListener('click', function () { setTab(+b.dataset.tab); });
@@ -1253,6 +1287,8 @@
     if (DEBUG) { el('debugbox').style.display = ''; el('scatAllRow').style.display = ''; }
     el('nImg').max = GEO.N_MAX;
     el('scatAll').checked = !state.scatBand;
+    el('rulerOn').checked = state.rulerOn;
+    syncTabControls();
 
     layout();
     var relayout = null;
