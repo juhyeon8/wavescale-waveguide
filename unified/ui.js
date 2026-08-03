@@ -166,7 +166,7 @@
 
     // 모드 분해 — |cₙ(z)| 는 위상과 무관하므로 애니메이션 프레임마다 다시 그리지 않는다.
     // 다시 그릴 조건은 재계산(recompute)과 배치 변경(layout) 둘뿐이다.
-    if (state.tab === 3 && !el('compare').classList.contains('modefold') && modeDirty) {
+    if (state.tab === 3 && modeDirty) {
       // 진단값은 모듈 변수에 남긴다 — ?debug=1 덤프는 30프레임마다 돌아서
       // 이 프레임의 dbg 객체를 보면 대부분 놓친다.
       sidesOf(state.tab).forEach(function (side) { modeDiag[side] = drawModeGraph(side); });
@@ -338,16 +338,16 @@
     var ld = layoutLog.d;
     L.push('── 모드 분해 ──');
     if (!ld) {
-      L.push('  (폴백 배치 — 접힘)');
+      L.push('  (폴백 배치 — 행 없음)');
     } else if (!ld.modeH) {
-      L.push('  접힘' + (state.tab === 3 ? '' : ' (탭 3 전용)') +
-             ' — 그리드는 도입 전과 동일. 필드 배율 ' + ld.scale.toFixed(3) +
+      L.push('  행 없음 (탭 3 전용) — 필드 배율 ' + ld.scale.toFixed(3) +
              (ld.scale >= 1 ? ' ✓' : ' ⚠ 축소'));
     } else {
-      L.push('  펼침 · 행 높이 ' + ld.modeH + 'px (고정 상수 — 세로 예산 밖)' +
+      L.push('  상시 표시 · 행 높이 ' + ld.modeH + 'px (고정 상수 — 세로 예산 밖)' +
              '  · 필드 배율 ' + ld.scale.toFixed(3) +
              (ld.scale >= 1 ? ' ✓ 영향 없음' : ' ⚠ 축소') +
-             '  · rowH ' + ld.rowH.toFixed(1) + ' (펼치기 전후 같아야 한다)');
+             '  · rowH ' + ld.rowH.toFixed(1) +
+             ' (모드 행이 없던 커밋 6c207f4 접힘 상태와 같아야 한다)');
       sidesOf(state.tab).forEach(function (side) {
         var g = modeDiag[side];
         if (!g) { L.push('  ' + side + ': (미표시)'); return; }
@@ -939,8 +939,9 @@
   /* 높이는 고정 상수다 — 세로 예산에서 가져오지 않는다.
    * 실측 결과 남는 세로가 탭 1·2 = 43px, 탭 3 = 17px 뿐이었다. 예산 안에 넣으려면
    * 캔버스를 줄여야 하는데 그러면 배율 1.000 이 깨지고 1px 벽선이 사라진다 (§16).
-   * 캔버스가 우선이므로 접이식으로 두고 펼칠 때 body 를 스크롤시킨다. */
-  var MODE_H = 220;                  // 펼쳤을 때 그래프 행 높이 (px, 고정)
+   * 캔버스가 우선이다 — 세 필드 캔버스가 배율 1.000 으로 먼저 자리를 잡고,
+   * 모드 그래프는 그 아래로 흘러 페이지 스크롤에 들어간다. 토글은 두지 않는다. */
+  var MODE_H = 220;                  // 모드 그래프 행 높이 (px, 고정)
   var modeDirty = true;              // |cₙ(z)|는 위상과 무관 — 애니메이션마다 다시 그리지 않는다
   var modeDiag = {};                 // ?debug=1 용. 마지막으로 그린 값
 
@@ -1140,12 +1141,15 @@
     if (window.matchMedia('(max-width:1365px)').matches) {   // 폴백에서는 CSS에 맡긴다
       grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = ''; grid.style.margin = '';
       grid.classList.remove('smooth');
-      grid.classList.add('modefold');          // 폴백에서는 모드 분해를 접어 둔다
+      grid.classList.add('nomode');            // 폴백에서는 모드 분해를 두지 않는다
       side.style.flex = ''; side.classList.remove('wide');
       el('scaleWarn').textContent = ''; el('scaleWarn').style.display = 'none';
       layoutLog.fallback++; layoutLog.d = null;
       return;
     }
+
+    // 모드 분해 행은 탭 3 전용이다. 폴백에서 붙인 nomode 를 여기서 되돌린다.
+    grid.classList.toggle('nomode', state.tab !== 3);
 
     // 탭 4는 필드 캔버스가 없다. 차트는 표시 크기 × DPR 로 백킹을 맞추는
     // 별도 규칙을 쓴다 (원본 script.js:fitGraph) — 정수 스냅을 적용하지 않는다.
@@ -1272,9 +1276,8 @@
          * 순환이 성립할 수 없다 (§10-1-2). 캡션과 정확히 같은 취급이다 —
          * 펼치면 그리드 크기가 변하지 않고 body 가 아래로 스크롤된다.
          * 접힌 상태(기본)의 그리드는 이 행이 없던 때와 완전히 같다. */
-        d.modeOpen = (state.tab === 3) && !grid.classList.contains('modefold');
-        d.modeH = d.modeOpen ? MODE_H : 0;
-        grid.style.gridTemplateRows = d.modeOpen
+        d.modeH = (state.tab === 3) ? MODE_H : 0;
+        grid.style.gridTemplateRows = d.modeH
           ? 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px ' + MODE_H + 'px auto'
           : 'auto ' + rh + 'px ' + rh + 'px ' + rh + 'px auto';
         modeDirty = true;
@@ -1412,6 +1415,10 @@
     grid.classList.toggle('only-wire', n === 2);
     grid.style.display = (n === 4) ? 'none' : '';
     el('tab4').style.display = (n === 4) ? '' : 'none';
+    // 모드 분해는 탭 3 전용이다 (탭 1·2는 2×2 재배치로 따로 다룬다).
+    // 뷰포트를 넘으므로 그 탭에서는 페이지가 스크롤되어야 한다 (캡션과 같은 규칙).
+    // 행의 표시 여부는 layout() 이 정한다 — 폴백 배치에서도 일관되게 하려는 것이다.
+    document.body.classList.toggle('modeon', n === 3);
     // 하단 캡션은 좌우 비교에 대한 문구다 (v1 §10-3) — 다른 탭에서는 숨긴다
     el('footcap').style.display = (n === 3) ? '' : 'none';
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
@@ -1483,14 +1490,6 @@
       el('capBtn').textContent = on ? '캡션 ▸' : '캡션 ▾';
       layout(); markDirty();
     });
-    // 모드 분해 접기 — 캡션과 같은 패턴이다. 펼쳐도 그리드 크기가 변하지 않고
-    // body 가 아래로 스크롤된다 (배율 1.000 · pixelated · 좌우 열 대응 전부 유지).
-    el('modeBtn').addEventListener('click', function () {
-      var on = el('compare').classList.toggle('modefold');
-      document.body.classList.toggle('modeopen', !on);
-      el('modeBtn').textContent = on ? '모드 분해 ▸' : '모드 분해 ▾';
-      layout(); markDirty();
-    });
     el('dbgBtn').addEventListener('click', function () {
       var on = el('debugbox').classList.toggle('folded');
       el('dbgBtn').textContent = on ? '?debug=1 ▸' : '?debug=1 ▾';
@@ -1525,7 +1524,8 @@
     });
 
     el('compare').classList.add('capfold');      // 캡션 기본 접힘
-    el('compare').classList.add('modefold');     // 모드 분해 기본 접힘 (§10-1-3-a)
+    // 기본 탭이 3이므로 시작부터 페이지 스크롤이 필요하다 (setTab 은 클릭 때만 돈다)
+    document.body.classList.toggle('modeon', state.tab === 3);
     if (DEBUG) { el('debugbox').style.display = ''; el('scatAllRow').style.display = ''; }
     el('nImg').max = GEO.N_MAX;
     el('scatAll').checked = !state.scatBand;

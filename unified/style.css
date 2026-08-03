@@ -86,10 +86,14 @@ button:hover { background:#252d54; }
      컬럼 폭 = 행 높이 × (520/220)
    컨테이너가 캔버스 비율과 정확히 같아지므로 object-fit(레터박스)이 필요 없다.
    캔버스 백킹은 520×220 그대로, CSS 표시 크기만 바뀐다. */
+/* align-content:start 는 필수다 — .compare 는 .app-main 의 flex 항목이라 높이가
+   stretch 로 늘어나고, 기본 align-content 는 남는 세로를 auto 트랙(열머리·캡션 행)에
+   나눠 넣는다. 그것이 모드 그래프를 붙였을 때 위쪽에 생기던 큰 여백의 정체다.
+   트랙 높이는 layout() 이 픽셀로 지정하므로 늘어날 이유가 없다. */
 .compare { flex:0 0 auto; display:grid;
   grid-template-columns:56px 1fr 1fr;
   grid-template-rows:auto 1fr 1fr 1fr auto;
-  gap:8px 10px; }
+  gap:8px 10px; align-content:start; }
 .hcell { font-size:0.8rem; color:#d6dcf7; align-self:end; line-height:1.3; }
 .hcell em { color:var(--mut); font-style:normal; font-size:0.72rem; display:block; }
 .rlabel { font-size:0.78rem; color:#d6dcf7; align-self:center; line-height:1.35; }
@@ -115,14 +119,15 @@ button:hover { background:#252d54; }
 .mpanel { min-height:0; min-width:0; display:flex; position:relative; }
 .mpanel canvas { width:100%; height:100%; display:block;
   background:#0e1326; border:1px solid var(--line); border-radius:4px; }
-/* 접이식, 기본 접힘 — (C) 수렴 스캔과 같은 패턴. 접힌 상태는 도입 전과 완전히 같다.
-   펼치면 그리드(세 캔버스 행)는 그대로이고 body 가 아래로 스크롤된다 = 배율 1.000 유지. */
-.compare.modefold #mode-label, .compare.modefold .mpanel { display:none; }
+/* 탭 3에서 상시 표시. 토글 없음 — 화면에 다 안 들어오면 페이지를 내려서 본다.
+   세 필드 캔버스가 배율 1.000 으로 먼저 자리를 잡고, 이 행은 그 아래로 흘러간다. */
+.compare.nomode #mode-label, .compare.nomode .mpanel { display:none; }
 /* 행 라벨은 sticky — 그래프까지 스크롤해 내려가도 무엇을 보고 있는지 붙어 있다. */
 #mode-label { position:sticky; top:0; z-index:6; background:var(--bg); align-self:start;
   padding-top:2px; }
-body.modeopen { height:auto; min-height:100%; overflow-y:auto; }
-body.modeopen .sidebar-scroll { overflow:visible; }
+/* 모드 그래프가 뷰포트를 넘으므로 페이지가 스크롤되어야 한다 (캡션과 같은 규칙). */
+body.modeon { height:auto; min-height:100%; overflow-y:auto; }
+body.modeon .sidebar-scroll { overflow:visible; }
 .capcell { font-size:0.68rem; line-height:1.45; color:#7e879e; }
 .capcell p { margin:0 0 4px; }
 .capcell p:last-child { margin-bottom:0; }
