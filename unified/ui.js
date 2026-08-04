@@ -7,6 +7,11 @@
   // 내부는 셀(=mm), UI는 cm. 변환은 이 파일에서만 한다. (v1 §12-5)
   var cm = function (cell) { return cell / 10; };
 
+  // R² 가드 문구. 임계값은 measure.js 한 곳에서만 정한다 — 여기서 숫자를 들고 있지 않는다.
+  function r2GuardText(label) {
+    return M.R2_MIN === null ? 'R² 가드 꺼짐' : label + ' ' + M.R2_MIN;
+  }
+
   var state = {
     a: 60, lambda: 144, y0OverA: 0.500,
     N: GEO.N, cesaro: GEO.CESARO, awAuto: GEO.AW_AUTO, aw: GEO.aw, scatBand: GEO.SCAT_BAND,
@@ -200,7 +205,7 @@
       var cv4 = el('cvDisp'), r4 = cv4.getBoundingClientRect();
       L.push('── 탭 4 (A) 지표 표 ──');
       L.push('  창: κ = ' + GEO.KAPPA_WIN + ' (' + M.WINDOW_LABEL[GEO.KAPPA_WIN] + ')' +
-             ' · k_z = fitWindowZ · R²_min 0.99');
+             ' · k_z = fitWindowZ · ' + r2GuardText('R²_min'));
       (window.__meas || []).forEach(function (row) {
         var cut = row.kappa !== null, thy = cut ? row.kappa : row.kz;
         var f = function (key) {
@@ -446,7 +451,8 @@
     var wz = M.kzWindow(kmin);
     el('winNote').textContent =
       '측정 창 — 차단 κ: ' + M.WINDOW_LABEL[GEO.KAPPA_WIN] + '  ·  전파 k_z: fitWindowZ [' +
-      wz.zStart.toFixed(1) + ', ' + wz.zEnd.toFixed(1) + '] 셀   |   R² 가드 0.99, 오차 5% 초과 시 경고색';
+      wz.zStart.toFixed(1) + ', ' + wz.zEnd.toFixed(1) + '] 셀   |   ' +
+      r2GuardText('R² 가드') + ', 오차 5% 초과 시 경고색';
   }
 
   /* ================= 탭 4 (B) 분산 곡선 =================

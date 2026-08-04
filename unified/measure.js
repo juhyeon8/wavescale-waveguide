@@ -94,8 +94,10 @@
   // Cesàro N=320에서 모드 3이 43.4%로 값을 내면서 가드 넷을 전부 통과했다 — 57% 틀린 값이다.
   // κ₃=0.1509라 창 C 50셀에서 exp(−7.54)=5.3e−4까지 내려가 잘림 잔차 바닥에 잠긴 것이고,
   // N을 올려도 바닥을 따라 기어오를 뿐이다(3.8→15.1→25.9→43.4%). 영상법의 실제 한계다.
-  // 확정: 0.99 (단계 6b). 정상 측정 0.9984~1.0000 / 이상 0.5910~0.9514 사이가 비어 있다.
-  var R2_MIN = 0.99;
+  // 확정: 0.96. 0.99는 정상 측정(0.9984~1.0000)과 이상 측정(0.5910~0.9514)
+  // 사이가 비어 있다는 관측에 근거했으나, 현재 조건에서는 그 구간에 값이
+  // 들어와 근거가 성립하지 않는다. 이상 측정이 관측된 범위의 위쪽으로 내린다.
+  var R2_MIN = 0.96;
 
   var WINDOW_IDS = ['A', 'B', 'C'];
   var WINDOW_LABEL = { A: 'A 0.15L', B: 'B z0+2/κ', C: 'C 소스+20' };
@@ -248,7 +250,7 @@
     wallShift: wallShift, aEff: aEff, awMatched: awMatched,
     kappaMinOfCutoff: kappaMinOfCutoff,
     KAPPA_WINDOWS: KAPPA_WINDOWS, WINDOW_IDS: WINDOW_IDS, WINDOW_LABEL: WINDOW_LABEL,
-    kappaWindow: kappaWindow, kzWindow: kzWindow,
+    kappaWindow: kappaWindow, kzWindow: kzWindow, R2_MIN: R2_MIN,
     measureKappa: measureKappa, measureKz: measureKz,
     localKappaProfile: localKappaProfile
   };
