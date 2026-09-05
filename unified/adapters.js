@@ -94,10 +94,15 @@
     var inc = IMG.computeField(mk(), [{ x: x0, y: ys, sign: 1 }], table);
     var band = (p.scatBand === undefined) ? GEO.SCAT_BAND : !!p.scatBand;
     var bt = bandOf(a), jBot = band ? bt.jBot : 0, jTop = band ? bt.jTop : GEO.Ny - 1;
-    var scat, tot, markers;
+    var scat, tot, markers, modeInfo = null;
 
     if (p.modeInfinity) {
       tot = IMG.computeModeField(GEO.Nx, GEO.Ny, GEO.y0pix, a, p.lambda, x0, 41, ys);
+      // λ = 2a/n 이면 문턱 모드가 생긴다. 결합 0 이면 버려져 정확해가 유지되고,
+      // 결합이 살아 있으면 defined=false — 이 열은 값이 아니라 '정의되지 않음' 이다.
+      modeInfo = { defined: tot.defined !== false,
+                   dropped: tot.droppedThresholdModes || [],
+                   undefined_: tot.undefinedThresholdModes || [] };
       // ⚠ 벽 바깥에서 computeModeField는 0이므로 scat = −inc 가 된다. 뺄셈 찌꺼기이며
       //   산란장이 아니다. 렌더러가 그 영역을 불투명 마스크로 가린다. 보정하지 말 것. (설계 §5-1)
       scat = combineBand(mk(), tot, inc, -1, jBot, jTop);
@@ -133,6 +138,9 @@
                xFromPix: 0, xToPix: GEO.Nx },
       markers: markers,
       quality: { N: N, modeInfinity: !!p.modeInfinity, cesaro: cesaro && !p.modeInfinity,
+                 modeSumDefined: modeInfo ? modeInfo.defined : null,
+                 thresholdDropped: modeInfo ? modeInfo.dropped : null,
+                 thresholdUndefined: modeInfo ? modeInfo.undefined_ : null,
                  scatBand: band, jBot: jBot, jTop: jTop, bandRows: jTop - jBot + 1,
                  plateAvg: plateWallAvg(tot, a) }
     };

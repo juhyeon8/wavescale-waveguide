@@ -57,6 +57,8 @@
     var jBot = Math.round(yBot), jTop = Math.round(y0 + a / 2);
     var span = jTop - jBot;
 
+    var dropped = [], undef = [];
+
     for (var n = 1; n <= nMax; n++) {
       var kc_n = n * Math.PI / a;
       var srcAmp = Math.sin(n * Math.PI * h / a);
@@ -64,6 +66,20 @@
       var propagating = k2 > kc2;
       var kzn = propagating ? Math.sqrt(k2 - kc2) : 0;
       var kappan = propagating ? 0 : Math.sqrt(kc2 - k2);
+
+      /* 문턱 모드 (k = k_c) — 아래 두 분기의 계수 4/(a·k_zn), 4/(a·κ_n) 이 발산한다.
+       * λ = 2a/n 이면 부동소수점상 k 와 k_c 가 비트 단위로 같아져 실제로 일어난다.
+       * 그때 propagating = (k2 > kc2) 가 false 라 차단 분기로 가고 κ_n = 0 이 된다.
+       *  - 결합계수가 수치적 0 이면 항을 버린다. y₀/a = 0.5 의 짝수 모드가 그렇다:
+       *    sin(nπ/2) 가 정확히 0 이 아니라 1.22e−16 이라 0 × ∞ = NaN 이 되던 자리다.
+       *    a=5.0·λ=5.0 과 a=10.0·λ=10.0 에서 격자 전체가 ±Inf/NaN 으로 덮이던 원인이다.
+       *  - 결합계수가 살아 있으면 발산이 물리적 실재다 (선파원이 여기하는 모드 진폭이
+       *    1/k_z 로 발산한다). 값을 지어내지 않고 "정의되지 않음"으로 표시하고,
+       *    NaN·Inf 를 배열에 흘려보내지 않는다. 소비자가 undefinedThresholdModes 를 본다. */
+      if (!propagating && kappan === 0) {
+        if (Math.abs(srcAmp) < 1e-12) { dropped.push(n); continue; }
+        undef.push(n); continue;
+      }
 
       // sin_y 룩업 테이블 (sin 반복 연산 절감)
       var sinY = new Float32Array(span + 1);
@@ -95,7 +111,12 @@
         }
       }
     }
-    return { re: re, im: im, Nx: Nx, Ny: Ny };
+    // defined=false 면 이 격자는 "그 모드를 뺀 나머지 합"이며 정확해가 아니다.
+    // 그 조건에서는 값을 쓰지 말고 '정의되지 않음'으로 표시할 것.
+    return { re: re, im: im, Nx: Nx, Ny: Ny,
+             droppedThresholdModes: dropped,     // 결합 0 → 버린 항 (정확해 유지)
+             undefinedThresholdModes: undef,     // 결합 살아 있음 → 발산
+             defined: undef.length === 0 };
   }
 
   var API = { waveNumber: waveNumber, cutoffInfo: cutoffInfo, theoryCurve: theoryCurve,

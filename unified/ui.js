@@ -63,7 +63,9 @@
       var row = { n: n, coupling: M.coupling(n, state.y0OverA), kappa: kap, kz: kz };
       keys.forEach(function (key) {
         var d = key === 'wire' ? currentD() : 1;   // resolvable 판정용. 영상법·모드합은 1셀
-        row[key] = (kap !== null)
+        // k = k_c 문턱이면 κ 도 k_z 도 없다 — 잴 대상이 아니다 (λ = 2a/n)
+        row[key] = (kap === null && kz === null) ? null
+          : (kap !== null)
           ? M.measureKappa(scenes[key].tot, state.a, n, GEO.KAPPA_WIN, d, kap)
           : M.measureKz(scenes[key].tot, state.a, n, kz, kmin);
       });
@@ -414,12 +416,17 @@
     meas.forEach(function (row) {
       var tr = document.createElement('tr');
       var cut = (row.kappa !== null);
+      var threshold = (row.kappa === null && row.kz === null);   // k = k_c
       var cells = [
         { text: String(row.n), cls: 'mode' },
         { text: row.coupling.toFixed(3), cls: '' },
         { text: cut ? '차단' : '전파', cls: 'mode' }
       ];
-      if (row.coupling < 0.02) {
+      if (threshold) {
+        // λ = 2a/n. κ = k_z = 0 이고 선파원이 여기하는 모드 진폭이 1/k_z 로 발산한다.
+        // 이론값이 없으므로 비교할 기준도 없다 — 값을 지어내지 않는다.
+        cells.push({ text: '문턱 (k = k_c) — 이론값 없음', cls: 'na', span: 4 });
+      } else if (row.coupling < 0.02) {
         // 나머지 칸 대신 한 칸으로 (v1 §10-4)
         cells.push({ text: '여기되지 않음(마디 위치)', cls: 'na', span: 4 });
       } else {
@@ -432,6 +439,9 @@
           cls: '' });
         ['sum', 'image', 'wire'].forEach(function (key) {
           var c = cellFor(row[key], thy, cut ? 'κ' : 'k_z');
+          // 대조군이 문턱 모드를 품고 있으면 그 장은 정확해가 아니다 (physics.js: defined)
+          if (key === 'sum' && scenes.sum && scenes.sum.quality.modeSumDefined === false)
+            c = { text: '정의되지 않음 (문턱 모드 발산)', cls: 'na' };
           // 대조군은 100.0% 가 정상이라 정보가 없다 → 흐리게. 벗어나면 강조된다.
           if (key === 'sum' && c.ratio !== undefined && Math.abs(c.ratio - 1) < 0.0005) c.cls = 'dim';
           cells.push(c);
