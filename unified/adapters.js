@@ -57,7 +57,35 @@
     return dst;
   }
 
-  function dAuto(lambda) { return WGM.dAuto(lambda, GEO.L, GEO.Nmax); }
+  /* ---------- 도선 간격 자동 규칙 ----------
+   *   d_auto = min( 0.055λ,  C/κ_max ),  C = GEO.KAPPA_D_MAX
+   * 둘째 항의 근거는 geometry.js:KAPPA_D_MAX 주석에 있다 (κ·d 축에서 실측으로 정했다).
+   *
+   * κ_max = 모드 1~3 중 "차단이면서 결합계수가 수치적 0이 아닌" 모드의 최대 κ.
+   * 결합 0 모드를 빼는 이유: 선파원이 여기하지 않아 벽에 실릴 장이 없으므로, κ가 아무리
+   * 커도 도선 간격을 좁힐 근거가 되지 않는다. y₀/a = 0.5 의 짝수 모드가 그렇다.
+   * 수치적 0 판정이 필요한 것은 sin(2π·0.5) 가 정확히 0이 아니라 1.22e−16 이기 때문이다.
+   *
+   * ⚠ a 를 넘기지 않으면 κ_max 를 구할 수 없어 둘째 항이 빠진다(= 종전 규칙). 호출부는
+   *   반드시 a 와 y₀/a 를 함께 넘길 것. */
+  function kappaMaxCoupled(a, lambda, y0OverA) {
+    var k = 2 * Math.PI / lambda, m = null;
+    for (var n = 1; n <= 3; n++) {
+      var kap = M.theoryKappa(n, a, k);
+      if (kap === null || M.coupling(n, y0OverA) < 1e-12) continue;
+      if (m === null || kap > m) m = kap;
+    }
+    return m;
+  }
+  function dAutoDetail(lambda, a, y0OverA) {
+    var y0 = (y0OverA === undefined) ? 0.5 : y0OverA;
+    return WGM.dAutoDetail(lambda, GEO.L, GEO.Nmax, {
+      kappaMax: (a === undefined) ? null : kappaMaxCoupled(a, lambda, y0),
+      C: GEO.KAPPA_D_MAX,
+      minD: Math.max(GEO.L / GEO.Nmax, 1)   // 도선 예산과 격자 1셀 중 큰 쪽
+    });
+  }
+  function dAuto(lambda, a, y0OverA) { return dAutoDetail(lambda, a, y0OverA).d; }
 
   // 도체판 두 줄 위의 |E| 평균 — 원본 main.js:plateWallAvg 로직 그대로.
   // N ↑ → 0에 수렴하는 것이 영상법의 수치 품질 지표다.
@@ -161,12 +189,17 @@
   // ===== 6-2. 도선 관 =====
   // p = { lambda, a, y0OverA, d, aw }
   function wireScene(p) {
-    var a = p.a, d = (p.d === undefined || p.d === null) ? dAuto(p.lambda) : p.d;
+    var a = p.a;
+    var dInfo = (p.d === undefined || p.d === null) ? dAutoDetail(p.lambda, a, p.y0OverA) : null;
+    var d = dInfo ? dInfo.d : p.d;
     // 유효 벽 정합 — a_w = d/2π 이면 δ = 0 이다. a_w는 물리 상수가 아니라 이산화
     // 설계 변수이고, 0.8도 임의의 선택이었다. 자유 매개변수를 더하는 게 아니라
     // 이미 있던 임의성을 물리적 기준으로 제거하는 것이다. (설계 §11-6)
-    // d = 0.055λ 이므로 k·a_w = 2π·a_w/λ = 0.055 로 λ에 무관한 상수가 되고,
-    // a_w/d = 1/2π = 0.1592 로 고정되어 얇은 도선 근사 두 조건이 전 범위에서 같아진다.
+    // a_w = d/2π 는 d 가 어떻게 정해지든 성립하므로 δ ≡ 0 과 a_w/d = 1/2π = 0.1592 도
+    // d 와 무관하게 유지된다 — 얇은 도선 근사의 "a_w ≪ d" 조건은 전 범위에서 같다.
+    // 다른 조건 "a_w ≪ λ" 는 k·a_w = 2π·a_w/λ = d/λ 이므로 d 에 따라 달라진다.
+    // d = 0.055λ 인 구간에서만 0.055 로 일정하고, κ·d 항이 걸리면 d/λ 가 그보다
+    // 작아진다(T4 0.0338, T5 0.0264) — 근사가 나빠지는 게 아니라 좋아지는 방향이다.
     var awAuto = (p.awAuto === undefined) ? GEO.AW_AUTO : !!p.awAuto;
     var aw = awAuto ? M.awMatched(d) : ((p.aw === undefined) ? GEO.aw : p.aw);
 
@@ -195,6 +228,11 @@
                xFromPix: GEO.xLeft, xToPix: GEO.wallXToPix(d) },
       markers: markers,
       quality: { d: d, aw: aw, awAuto: awAuto, awOverD: aw / d,
+                 dAuto: !!dInfo, dWhy: dInfo ? dInfo.why : '수동',
+                 kappaMax: dInfo ? dInfo.kappaMax : null,
+                 kappaD: dInfo && dInfo.kappaMax ? dInfo.kappaMax * d : null,
+                 clampedLo: dInfo ? dInfo.clampedLo : false,
+                 clampedCap: dInfo ? dInfo.clampedCap : false,
                  nW: GEO.nWires(d), lastWireZ: GEO.lastWireZ(d),
                  gap: d - 2 * aw, dOverLambda: d / p.lambda,
                  delta: M.wallShift(d, aw), aEff: M.aEff(a, d, aw),
@@ -202,5 +240,6 @@
     };
   }
 
-  return { imageScene: imageScene, wireScene: wireScene, dAuto: dAuto };
+  return { imageScene: imageScene, wireScene: wireScene,
+           dAuto: dAuto, dAutoDetail: dAutoDetail, kappaMaxCoupled: kappaMaxCoupled };
 });

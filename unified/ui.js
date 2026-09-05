@@ -30,7 +30,9 @@
     { label: '④ 3모드     a=6.0 · λ=0.55a', a: 60, lambda: 33, y0OverA: 0.167 }
   ];
 
-  function currentD() { return state.dAutoOn ? AD.dAuto(state.lambda) : state.dManual; }
+  function currentD() {
+    return state.dAutoOn ? AD.dAuto(state.lambda, state.a, state.y0OverA) : state.dManual;
+  }
 
   /* ---------------- 계산 ---------------- */
   var scenes = null, scales = null, timing = null, rulerS = null;
@@ -62,8 +64,8 @@
       var kap = M.theoryKappa(n, state.a, k), kz = M.theoryKz(n, state.a, k);
       var row = { n: n, coupling: M.coupling(n, state.y0OverA), kappa: kap, kz: kz };
       keys.forEach(function (key) {
-        var d = key === 'wire' ? currentD() : 1;   // resolvable 판정용. 영상법·모드합은 1셀
-        // k = k_c 문턱이면 κ 도 k_z 도 없다 — 잴 대상이 아니다 (λ = 2a/n)
+        var d = key === 'wire' ? currentD() : 1;   // 벽 이산화 가드(κ·d) 판정용. 영상법·모드합은 1셀
+        // k = k_c 문턱이면 κ 도 k_z 도 없다 — 잴 대상이 아니다 (T4 = λ 2a 가 그렇다)
         row[key] = (kap === null && kz === null) ? null
           : (kap !== null)
           ? M.measureKappa(scenes[key].tot, state.a, n, GEO.KAPPA_WIN, d, kap)
@@ -1544,6 +1546,9 @@
   }
 
   function init() {
+    // 규칙 문구는 GEO 에서 채운다 — 상수를 HTML 에 박으면 단일 진실원이 깨진다.
+    el('dAutoCap').textContent =
+      '도선 간격 자동 (0.055λ · 차단 모드가 있으면 κ·d ≤ ' + GEO.KAPPA_D_MAX + ')';
     bind('lambda', function (t) { state.lambda = Math.round(+t.value * 10); });
     bind('aGap',   function (t) { state.a = Math.round(+t.value * 10); });
     bind('y0',     function (t) { state.y0OverA = +t.value; });

@@ -323,7 +323,8 @@ q = {
 ### 6-3. `d`의 기본값
 
 ```
-d = WGM.dAuto(lambda, GEO.L, GEO.Nmax)    // = clamp(0.055λ, L/Nmax, 0.1λ)
+d = AD.dAuto(lambda, a, y0OverA)          // = clamp(min(0.055λ, C/κ_max), max(L/Nmax,1), 0.1λ)
+                                          //   C = GEO.KAPPA_D_MAX, κ_max = 차단·결합≠0 모드의 최대 κ
 ```
 
 수동 슬라이더도 제공한다 (2 ~ 20 mm, step 1).
@@ -376,7 +377,7 @@ function kappaWindow(kappaThy, d) {
   return {
     zStart: zStart, zEnd: zEnd,
     valid:      (zEnd - zStart) > 0 && isFinite(kappaThy) && kappaThy > 0,
-    resolvable: (1/kappaThy) >= (d || 1)      // 영상법은 d 없음 → d=1(셀)
+    resolvable: kappaThy * (d || 1) <= GEO.KAPPA_D_MAX   // 벽 이산화 한계. 영상법은 d 없음 → d=1(셀)
   };
 }
 
@@ -403,7 +404,7 @@ function kzWindow(kzThy, kappaMin) {
 
 `modes.js:measureKappaN`을 그대로 옮긴다. 다음 가드를 전부 유지할 것:
 
-- `!valid || !resolvable` → null
+- `!valid` → null / `κ·d > C` (벽 이산화 한계) → null
 - 끝 진폭 ≤ 0 → null
 - 시작/끝 진폭비 < 1.5 (거의 감쇠 안 함) → null
 - 로그 기울기 ≥ 0 (성장·평탄, 비물리) → null
@@ -598,7 +599,7 @@ function colorForValue(v, scale, gamma) {
 
 [수치 품질]  방법별로 따로. 물리 입력이 아니다.
    영상법: 영상 쌍 개수 N (0~80)  |  [N=∞ 정확 모드합] 토글
-   도선관: 도선 간격 d [자동 0.055λ] 체크박스 / 수동 슬라이더 2~20 mm
+   도선관: 도선 간격 d [자동 0.055λ · 차단 모드가 있으면 κ·d ≤ C] 체크박스 / 수동 슬라이더 2~20 mm
            도선 반지름 aw 슬라이더 (기본 0.8 mm)
 
 [표시]  물리와 무관.
@@ -673,7 +674,7 @@ function colorForValue(v, scale, gamma) {
 | 3 | 1.000 | 차단 | κ = 0.1552 | 측정 불가 | 측정 불가 |
 
 - `결합 = |sin(nπ·y₀/a)|`, 0.02 미만이면 `여기되지 않음(마디 위치)`
-- 측정 불가 사유를 구분해 표시: `분해능 한계(1/κ < d)` / `수치 바닥` / `창보다 λ_g가 김`
+- 측정 불가 사유를 구분해 표시: `벽 이산화 한계(κ·d > C)` / `수치 바닥` / `창보다 λ_g가 김` / `직선성 부족(R²)`
 - 오차 5% 초과 시 해당 칸에 경고색
 
 **(B) 분산 곡선**
@@ -730,7 +731,7 @@ function colorForValue(v, scale, gamma) {
   Web Worker 도입 여부는 사람이 결정한다.
   처음부터 Worker를 넣지 말 것. 게이트 디버깅이 훨씬 어려워진다.
 
-> 참고 규모: λ=2.4cm, d=0.055λ → 양 벽 도선 456개.
+> 참고 규모: λ=2.4cm, d=0.055λ → 양 벽 도선 456개. (이 조건은 차단 모드가 없어 κ·d 항이 걸리지 않는다)
 > MoM O(n³) ≈ 9.5×10⁷ 복소 연산 + 격자 산란장 누적 ≈ 5.2×10⁷.
 > λ가 크면(15cm) 도선 76개라 즉시 끝난다 — 슬라이더 왼쪽 끝에서만 무겁다.
 

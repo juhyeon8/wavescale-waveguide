@@ -36,9 +36,9 @@ var COND = {
 };
 var N_IMG = GEO.N;   // 160. Cesàro 기본 (GEO.CESARO)
 
-// 세 열 — 모드합 / 영상법 / 도선관. d 는 resolvable 판정에만 쓴다.
+// 세 열 — 모드합 / 영상법 / 도선관. d 는 벽 이산화 가드(κ·d ≤ C) 판정에만 쓴다.
 function columns(c) {
-  var d = AD.dAuto(c.lambda);
+  var d = AD.dAuto(c.lambda, c.a, c.y0OverA);
   return [
     { key: 'sum',   label: '모드합',  d: 1, scene: AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, modeInfinity: true }) },
     { key: 'image', label: '영상법',  d: 1, scene: AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, N: N_IMG }) },
@@ -86,14 +86,14 @@ function argmaxInc(sc) {
 function runG0() {
   hr('[G0] 좌표 정합 — 두 Scene이 정확히 일치해야 한다 (오차 허용 없음)');
   var AS = [48, 60, 100, 160], YS = [0.05, 0.25, 0.5, 1 / 6, 0.95];
-  var lambda = 144, d = AD.dAuto(lambda), bad = 0, n = 0;
-  L('  조건: λ=' + lambda + ', N=4(영상법), d=' + d.toFixed(3) + '(도선관)');
+  var lambda = 144, bad = 0, n = 0;
+  L('  조건: λ=' + lambda + ', N=4(영상법), d=a별 자동(도선관)');
   L();
   L('    a   y₀/a     srcPix  srcYPix    wallBot  wallTop   Nx   Ny   |inc|최대점   판정');
   L('  ' + '-'.repeat(84));
   AS.forEach(function (a) { YS.forEach(function (y) {
     var si = AD.imageScene({ lambda: lambda, a: a, y0OverA: y, N: 4 });
-    var sw = AD.wireScene({ lambda: lambda, a: a, y0OverA: y, d: d });
+    var sw = AD.wireScene({ lambda: lambda, a: a, y0OverA: y, d: AD.dAuto(lambda, a, y) });
     n++;
     var mi = si.markers.filter(function (m) { return m.kind === 'source'; })[0];
     var mw = sw.markers.filter(function (m) { return m.kind === 'source'; })[0];
@@ -144,7 +144,7 @@ function runG1() {
   Object.keys(COND).forEach(function (key) {
     var c = COND[key];
     var si = AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, N: 4 });
-    var sw = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: AD.dAuto(c.lambda) });
+    var sw = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: AD.dAuto(c.lambda, c.a, c.y0OverA) });
     var r = relL2Inc(si, sw, c.a, c.y0OverA);
     var ok = r < 1e-3;
     if (!ok) FAIL.push('G1 ' + c.name);
@@ -170,9 +170,10 @@ function runG2() {
     var kap = M.theoryKappa(n, c.a, k), cp = M.coupling(n, c.y0OverA);
     L();
     if (kap === null) { L('  mode ' + n + '  — 전파 모드 (G3 참조)'); continue; }
-    var res = 1 / kap >= AD.dAuto(c.lambda);
+    var dW = AD.dAuto(c.lambda, c.a, c.y0OverA), res = kap * dW <= GEO.KAPPA_D_MAX;
     L('  mode ' + n + '  (이론 κ = ' + kap.toFixed(7) + ' /셀,  1/κ = ' + (1 / kap).toFixed(2) +
-      '셀,  결합 = ' + cp.toExponential(2) + ',  도선관 resolvable ' + (res ? '✓' : '✗') + ')');
+      '셀,  결합 = ' + cp.toExponential(2) + ',  도선관 κ·d = ' + (kap * dW).toFixed(3) +
+      ' ' + (res ? '≤' : '>') + ' ' + GEO.KAPPA_D_MAX + ' ' + (res ? '✓' : '✗') + ')');
     L('    창          z구간             ' + cols.map(function (q) { return padR(q.label, 24); }).join(''));
     M.WINDOW_IDS.forEach(function (w) {
       var win = M.kappaWindow(w, kap);
@@ -209,7 +210,7 @@ function runG2WALL() {
   L('  OFF = a_w 0.8 고정(종전),  ON = a_w = d/2π (δ≡0)');
   L('  κ 예측은 a_eff로 계산한 이론값의 비 — 측정값이 이 예측과 맞으면 δ 설명이 옳다.');
   ['P1'].forEach(function (key) {
-    var c = COND[key], k = 2 * Math.PI / c.lambda, d = AD.dAuto(c.lambda);
+    var c = COND[key], k = 2 * Math.PI / c.lambda, d = AD.dAuto(c.lambda, c.a, c.y0OverA);
     var kap = M.theoryKappa(1, c.a, k);
     L();
     L('── ' + c.name + '  a=' + c.a + ', λ=' + c.lambda + ', d=' + d.toFixed(3) + ',  이론 κ₁=' + kap.toFixed(7) + ' ──');
@@ -228,8 +229,10 @@ function runG2WALL() {
     });
   });
   L();
-  L('  ▸ 참고: d = 0.055λ 이므로 자동일 때 k·a_w = 2π·a_w/λ = 0.055 로 λ에 무관한 상수,');
-  L('    a_w/d = 1/2π = 0.1592 로 고정. 얇은 도선 근사 두 조건이 슬라이더 전 범위에서 같아진다.');
+  L('  ▸ 참고: a_w = d/2π 는 d 가 어떻게 정해지든 성립하므로 δ ≡ 0 과 a_w/d = 1/2π = 0.1592 는');
+  L('    d 와 무관하게 유지된다 — 얇은 도선 근사의 a_w ≪ d 조건은 전 범위에서 같다.');
+  L('    다른 조건 a_w ≪ λ 는 k·a_w = d/λ 라 d 를 따라간다. d = 0.055λ 구간에서만 0.055 로 일정하고,');
+  L('    κ·d 항이 걸리면 그보다 작아진다 — 근사가 좋아지는 방향이다.');
 }
 
 /* ========================================================== G2-PROFILE 국소 기울기 */
@@ -317,7 +320,7 @@ function runG3() {
 /* ================================================================= G3-AW a_w 민감도 */
 function runG3AW() {
   hr('[G3-AW] a_w 민감도 스캔');
-  L('  core.js 사용 조건은 a_w ≪ d. dAuto = 0.055λ이므로 a_w/d = 14.5/λ 이고,');
+  L('  core.js 사용 조건은 a_w ≪ d. 이 절은 정합 OFF(a_w = 0.8 고정)라 a_w/d = 0.8/d 이고,');
   L('  프리셋 ③④가 이미 문턱(0.25)을 넘는다 — 그 둘이 곧 G3(b)(c) 조건이다.');
   L('  모드합·영상법은 a_w와 무관하므로 같은 값이 나오는 것이 정상이다 (대조군).');
   L('  ⚠ 이 절은 유효 벽 정합을 끈 상태(awAuto=false)에서만 의미가 있다.');
@@ -325,7 +328,7 @@ function runG3AW() {
 
   ['P3', 'P4'].forEach(function (key) {
     var c = COND[key];
-    var d = AD.dAuto(c.lambda), k = 2 * Math.PI / c.lambda;
+    var d = AD.dAuto(c.lambda, c.a, c.y0OverA), k = 2 * Math.PI / c.lambda;
     var kmin = M.kappaMinOfCutoff(c.a, k, 3);
     var base = [
       { key: 'sum',   label: '모드합', scene: AD.imageScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, modeInfinity: true }) },
@@ -425,7 +428,8 @@ function runG5() {
   L();
   L('  ▸ 도선관  d ↓   (유효 벽 정합 OFF = a_w 0.8 고정 / ON = a_w = d/2π)');
   L('     d     정합   a_w      δ         wallT     창A       창B       창C');
-  [8, 5, 3, AD.dAuto(c.lambda)].forEach(function (d) {
+  var dA5 = AD.dAuto(c.lambda, c.a, c.y0OverA);
+  [8, 5, 3, dA5].forEach(function (d) {
     [false, true].forEach(function (auto) {
       var sc = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d, awAuto: auto, aw: GEO.aw });
       var q = sc.quality;
@@ -436,7 +440,7 @@ function runG5() {
       L('   ' + (auto ? '      ' : pad(d.toFixed(3), 6)) + '  ' + padR(auto ? 'ON ' : 'OFF', 5) +
         pad(q.aw.toFixed(4), 7) + '  ' + pad((q.delta >= 0 ? '+' : '') + q.delta.toFixed(4), 8) +
         '  ' + pad(q.wallT.toFixed(4), 8) + cells.join('') +
-        (auto && Math.abs(d - AD.dAuto(c.lambda)) < 1e-9 ? '   ← dAuto' : ''));
+        (auto && Math.abs(d - dA5) < 1e-9 ? '   ← dAuto' : ''));
     });
   });
 }
@@ -459,8 +463,9 @@ function bench(fn, rep, warm) {
 function runTIME() {
   hr('[TIME] 재계산 실측 시간 — 워밍업 2회 후 5회, 중앙값');
   L('  ⚠ node 측정이며 브라우저와 다르다. 이 환경은 부하 변동이 커서 같은 계산이 3~4배까지 흔들린다.');
-  L('  구조적 비용: 최악 λ=24셀 → d=' + AD.dAuto(24).toFixed(3) + ', 도선 ' + (2 * GEO.nWires(AD.dAuto(24))) +
-    '개 → MoM O(n³) ≈ ' + (Math.pow(2 * GEO.nWires(AD.dAuto(24)), 3) / 1e6).toFixed(0) + 'M 복소연산');
+  var dW24 = AD.dAuto(24, 60, 0.5);
+  L('  구조적 비용: 최악 λ=24셀 → d=' + dW24.toFixed(3) + ', 도선 ' + (2 * GEO.nWires(dW24)) +
+    '개 → MoM O(n³) ≈ ' + (Math.pow(2 * GEO.nWires(dW24), 3) / 1e6).toFixed(0) + 'M 복소연산');
   L();
   L('    조건              단계             중앙값     최소     최대');
   L('  ' + '-'.repeat(66));
@@ -472,7 +477,7 @@ function runTIME() {
       AD.imageScene({ lambda: lam, a: 60, y0OverA: 0.5 });
       AD.wireScene({ lambda: lam, a: 60, y0OverA: 0.5 });
     });
-    [['영상법 N=' + GEO.N, bi], ['도선관 (도선 ' + (2 * GEO.nWires(AD.dAuto(lam))) + ')', bw],
+    [['영상법 N=' + GEO.N, bi], ['도선관 (도선 ' + (2 * GEO.nWires(AD.dAuto(lam, 60, 0.5))) + ')', bw],
      ['탭 3 = 둘 다', bb]].forEach(function (row, i) {
       L('  ' + padR(i === 0 ? LC[1] : '', 16) + padR(row[0], 18) +
         pad(row[1].med.toFixed(0), 6) + '   ' + pad(row[1].min.toFixed(0), 6) + '   ' + pad(row[1].max.toFixed(0), 6) +
@@ -488,11 +493,242 @@ function runTIME() {
   L('      슬라이더 최악(λ = 2.4cm) 합계 중앙값 > 2500ms → 보고·중단');
 }
 
+/* ========================================== D-DSCAN 도선 간격 d 스캔 (1회성 진단) */
+/* 논문 표3의 '도선 관' 열에서 값을 못 낸 칸(T5 모드3)과 5% 이상 벗어난 칸(T4 모드3)이
+ * 도선 간격 d 하나로 설명되는지 데이터로 확인한다. 판정 없음 — 표만 낸다.
+ *
+ * 가설: 도선 관의 κ 오차는 무차원량 κ·d 가 지배한다.
+ *   d 는 벽을 이산화한 격자 간격이고, 차단 모드는 벽을 따라 e^{−κz} 로 변한다.
+ *   한 칸 사이의 진폭 변화가 e^{−κd} 이므로, κ·d 가 작을 때만 도선 열이
+ *   연속 도체 벽을 대신할 수 있다.
+ *
+ * 이 절에서는 어떤 상수도 코드에 박지 않는다. 기본값(dAuto·가드·GEO)은 그대로 둔다.
+ * 벽 이산화 가드는 이 진단 경로에서만 우회한다 — measure.js 는 고치지 않고,
+ * measureKappa 의 d 인자에 0에 가까운 값을 넘겨 가드 조건을 지나가게 한다.
+ * 가드에 걸렸을 사실은 별도 열에 표시한다. */
+var DCOND = {
+  T4: { name: 'T4', a:  50, lambda: 100, y0OverA: 0.5, note: 'λ/2a=1.00  모드1 문턱, 3 차단' },
+  T5: { name: 'T5', a:  50, lambda: 125, y0OverA: 0.5, note: 'λ/2a=1.25  모드1,3 차단' }
+};
+// 기준점(현재 정상인 칸) — 곡선에 함께 얹어 κ·d 축을 넓게 덮는다. d 는 각자의 dAuto.
+var DREF = {
+  T2: { name: 'T2', a:  50, lambda:  50, y0OverA: 0.5, modes: [3] },
+  T3: { name: 'T3', a: 100, lambda: 100, y0OverA: 0.5, modes: [3] }
+};
+var D_LIST = [6.875, 5.5, 4, 3, 2.5, 2, 1.5];
+
+var DPTS = [];   // κ·d 오차 곡선용 점
+
+// 가드 우회 측정. measure.js 의 조건은 1/kThy >= (d || 1) 이므로 d에 1e-12를 넘기면 지나간다.
+function kappaNoResGuard(scene, a, n, winId, kThy) {
+  return M.measureKappa(scene.tot, a, n, winId, 1e-12, kThy);
+}
+// 창 안 진폭비 (시작/끝) — measureKappa 의 '진폭비 부족(<1.5)' 가드와 같은 정의.
+function ampRatioIn(scene, a, n, win) {
+  var amp = M.modeCoefMag(scene.tot, a, n), first = null, last = null;
+  for (var z = win.zStart; z <= win.zEnd; z += 1) {
+    var ip = Math.round(z) + GEO.xLeft;
+    if (ip < 0 || ip >= amp.length) continue;
+    if (first === null) first = amp[ip];
+    last = amp[ip];
+  }
+  return (first !== null && last > 0) ? first / last : null;
+}
+
+var DHEAD = '      d 도선수     κ·d  창 [z0, z1]      진폭비     a_w        δ   a_eff  κ측정/이론             R²  가드  시간ms';
+
+function dscanRow(c, n, d, kap, tag) {
+  var t0 = Date.now();
+  var sc = AD.wireScene({ lambda: c.lambda, a: c.a, y0OverA: c.y0OverA, d: d });
+  var ms = Date.now() - t0;
+  var q = sc.quality, winId = GEO.KAPPA_WIN;
+  var win = M.kappaWindow(winId, kap);
+  var r = kappaNoResGuard(sc, c.a, n, winId, kap);
+  var guarded = !(kap * d <= GEO.KAPPA_D_MAX);       // 기본 경로였다면 가드에 걸렸는가
+  var ratio = ampRatioIn(sc, c.a, n, win);
+  var pct = (r.value === null) ? null : r.value / kap * 100;
+  if (pct !== null)
+    DPTS.push({ tag: tag, kd: kap * d, err: pct - 100, r2: r.r2, guarded: guarded, d: d });
+  L('  ' + pad(d.toFixed(3), 6) + pad(2 * GEO.nWires(d), 6) + '  ' + pad((kap * d).toFixed(4), 7) +
+    '  ' + padR('[' + win.zStart.toFixed(1) + ', ' + win.zEnd.toFixed(1) + ']', 16) +
+    pad(ratio === null ? '—' : ratio.toFixed(2), 7) +
+    pad(q.aw.toFixed(4), 8) + pad((q.delta >= 0 ? '+' : '') + q.delta.toFixed(4), 9) +
+    pad(q.aEff.toFixed(3), 8) + '  ' +
+    padR(pct === null ? r.reason : pct.toFixed(2) + '%', 19) +
+    pad(r.r2 === undefined ? '—' : r.r2.toFixed(5), 8) +
+    pad(guarded ? '차단' : '통과', 6) + pad(ms, 7));
+}
+
+function runDSCAN() {
+  hr('[D-DSCAN] 도선 간격 d 스캔 — 표3 미산출·이탈 칸의 원인 진단 (판정 없음)');
+  L('  결론(반영 완료): κ·d 가 지배 변수다. 세 조건의 오차 곡선이 κ·d 축에서 겹치고,');
+  L('  κ·d = 1.5 에서 동시에 무너진다. 상한 C = ' + GEO.KAPPA_D_MAX + ' 는 |오차| ≤ 0.5% 선에서 읽었다.');
+  L('  ※ 이 표는 스캔이므로 d 를 직접 준다. 앱의 기본 d 는 dAuto 가 정한다.');
+  L('  ※ 벽 이산화 가드 (κ·d ≤ ' + GEO.KAPPA_D_MAX + ') 는 이 절에서만 우회해 값을 끝까지 낸다.');
+  L('    가드 열: 차단 = 기본 경로였다면 계산 전에 막혔을 행, 통과 = 원래도 값이 나오는 행.');
+  L('  ※ 창은 확정창 ' + GEO.KAPPA_WIN + ' (' + M.WINDOW_LABEL[GEO.KAPPA_WIN] + ').');
+  L('    창 A는 κ로만 정해지므로 d 를 바꿔도 같다 — 창 차이가 아니라 벽 이산화 차이만 본다.');
+  L('  ※ a_w 는 유효 벽 정합(a_w = d/2π) 자동. 정의상 δ ≡ 0, a_eff ≡ a 가 되는지 함께 확인한다.');
+
+  Object.keys(DCOND).forEach(function (key) {
+    var c = DCOND[key], k = 2 * Math.PI / c.lambda;
+    L();
+    L('── ' + c.name + '  a=' + c.a + ', λ=' + c.lambda + ', y₀/a=' + c.y0OverA + '   (' + c.note + ') ──');
+    var kap3 = M.theoryKappa(3, c.a, k);
+    L('  모드 3  이론 κ = ' + kap3.toFixed(7) + ' /셀 = ' + (kap3 * 10).toFixed(4) +
+      ' cm⁻¹,  1/κ = ' + (1 / kap3).toFixed(3) + '셀,  결합 = ' + M.coupling(3, c.y0OverA).toFixed(3) +
+      ',  현재 dAuto = ' + AD.dAuto(c.lambda, c.a, c.y0OverA).toFixed(3));
+    L(DHEAD);
+    L('  ' + '-'.repeat(100));
+    D_LIST.forEach(function (d) { dscanRow(c, 3, d, kap3, c.name + '-m3'); });
+    L('  ' + '-'.repeat(100));
+
+    var kap1 = M.theoryKappa(1, c.a, k);
+    if (kap1 !== null && M.coupling(1, c.y0OverA) > 1e-12) {
+      L();
+      L('  모드 1  이론 κ = ' + kap1.toFixed(7) + ' /셀 = ' + (kap1 * 10).toFixed(4) +
+        ' cm⁻¹,  1/κ = ' + (1 / kap1).toFixed(3) + '셀   (같은 조건의 저-κ·d 대조군)');
+      L(DHEAD);
+      L('  ' + '-'.repeat(100));
+      D_LIST.forEach(function (d) { dscanRow(c, 1, d, kap1, c.name + '-m1'); });
+      L('  ' + '-'.repeat(100));
+    } else {
+      L();
+      L('  모드 1  — ' + (kap1 === null ? '차단 아님 (λ = 2a 문턱: k = k_c 라 κ = k_z = 0)' : '결합 0'));
+    }
+  });
+
+  // 현재 정상인 칸을 곡선에 얹는다 (각자의 dAuto 그대로)
+  L();
+  L('── 기준점 (현재 정상, dAuto 그대로 — 곡선 대조용) ──');
+  L(DHEAD);
+  L('  ' + '-'.repeat(100));
+  Object.keys(DREF).forEach(function (key) {
+    var c = DREF[key], k = 2 * Math.PI / c.lambda, d = AD.dAuto(c.lambda, c.a, c.y0OverA);
+    c.modes.forEach(function (n) {
+      var kap = M.theoryKappa(n, c.a, k);
+      if (kap === null) return;
+      dscanRow(c, n, d, kap, c.name + '-m' + n);
+    });
+  });
+  L('  ' + '-'.repeat(100));
+
+  /* ---- κ·d 오차 곡선 ---- */
+  L();
+  L('  ▸ 오차 곡선 — 가로축 κ·d, 세로축 (측정/이론 − 1)');
+  L('    조건이 달라도 같은 κ·d 에서 오차가 겹치면 κ·d 가 지배 변수라는 뜻이다.');
+  L();
+  DPTS.sort(function (x, y) { return x.kd - y.kd; });
+  var MAXE = 0;
+  DPTS.forEach(function (p) { MAXE = Math.max(MAXE, Math.abs(p.err)); });
+  var SCALE = MAXE > 0 ? 40 / MAXE : 1;
+  L('      κ·d     오차%     조건       d       R²  가드   ' + ' '.repeat(37) + '0');
+  L('  ' + '-'.repeat(100));
+  DPTS.forEach(function (p) {
+    var nb = Math.round(Math.abs(p.err) * SCALE);
+    var bar = (p.err >= 0) ? ' '.repeat(40) + '|' + '#'.repeat(nb)
+                           : ' '.repeat(40 - nb) + '#'.repeat(nb) + '|';
+    L('  ' + pad(p.kd.toFixed(4), 7) + pad((p.err >= 0 ? '+' : '') + p.err.toFixed(3), 10) +
+      '  ' + padR(p.tag, 8) + pad(p.d.toFixed(3), 6) + pad(p.r2 === undefined ? '—' : p.r2.toFixed(4), 9) +
+      pad(p.guarded ? '차단' : '통과', 6) + '   ' + bar);
+  });
+  L('  ' + '-'.repeat(100));
+  L('    (막대 1칸 = ' + (1 / SCALE).toFixed(4) + '%p,  최대 |오차| = ' + MAXE.toFixed(3) + '%p)');
+  L();
+  L('  ▸ |오차| ≤ 0.5% 를 만족하는 κ·d 상한을 여기서 읽는다.');
+  var okMax = null, badMin = null;
+  DPTS.forEach(function (p) {
+    if (Math.abs(p.err) <= 0.5) { if (okMax === null || p.kd > okMax) okMax = p.kd; }
+    else { if (badMin === null || p.kd < badMin) badMin = p.kd; }
+  });
+  L('    |오차| ≤ 0.5% 인 최대 κ·d = ' + (okMax === null ? '없음' : okMax.toFixed(4)));
+  L('    |오차| > 0.5% 인 최소 κ·d = ' + (badMin === null ? '없음' : badMin.toFixed(4)));
+  L('    → 앞이 뒤보다 작으면 그 사이 어디를 잡아도 되고, 뒤집히면 κ·d 단일 변수 가설이 깨진 것이다.');
+  L();
+  L('  ▸ 이 절은 진단이다. 여기서 읽은 상한을 코드에 박는 일은 다음 단계에서 한다.');
+}
+
+/* ================================================== TAB3 논문 표3 (이론 vs 도선 관) */
+/* 변경 전(종전 규칙)과 변경 후(새 규칙)를 나란히 낸다.
+ *   종전: d = min(0.1λ, max(0.055λ, L/Nmax)),  가드 1/κ ≥ d  (= κ·d ≤ 1)
+ *   신규: d = min(0.055λ, C/κ_max) 후 클램프,  가드 κ·d ≤ C  (C = GEO.KAPPA_D_MAX)
+ * 값은 cm⁻¹ (내부 단위 1셀 = 1mm 이므로 ×10). 판정 없음 — 표만 낸다. */
+var TAB3 = [
+  { n: 'T1', a:  50, lambda:  25, y0OverA: 0.5, note: 'λ/2a=0.25  모드1,3 전파' },
+  { n: 'T2', a:  50, lambda:  50, y0OverA: 0.5, note: 'λ/2a=0.50  모드1 전파, 3 차단' },
+  { n: 'T3', a: 100, lambda: 100, y0OverA: 0.5, note: 'λ/2a=0.50  모드1 전파, 3 차단' },
+  { n: 'T4', a:  50, lambda: 100, y0OverA: 0.5, note: 'λ/2a=1.00  모드1 문턱, 3 차단' },
+  { n: 'T5', a:  50, lambda: 125, y0OverA: 0.5, note: 'λ/2a=1.25  모드1,3 차단' }
+];
+function dAutoOld(lambda) {
+  var floor = GEO.L / GEO.Nmax, cap = 0.1 * lambda, target = 0.055 * lambda;
+  return Math.min(cap, Math.max(target, floor));
+}
+
+function runTAB3() {
+  hr('[TAB3] 논문 표3 — 이론 vs 도선 관 (판정 없음, 값은 cm⁻¹)');
+  L('  변경 전 = 종전 규칙 d=min(0.1λ, max(0.055λ, L/Nmax)), 가드 1/κ ≥ d (= κ·d ≤ 1)');
+  L('  변경 후 = 새 규칙   d=min(0.055λ, C/κ_max) 후 클램프, 가드 κ·d ≤ C,  C = ' + GEO.KAPPA_D_MAX);
+  L('  차단 모드는 κ, 전파 모드는 k_z. 결합계수 0인 모드는 선파원이 여기하지 않아 측정 대상이 아니다.');
+  L();
+  L('   조건  모드  종류   이론값        변경 전 d/도선  값(오차%)            변경 후 d/도선  값(오차%)          ms');
+  L('  ' + '-'.repeat(112));
+  TAB3.forEach(function (t) {
+    var k = 2 * Math.PI / t.lambda;
+    var dOld = dAutoOld(t.lambda), dNew = AD.dAuto(t.lambda, t.a, t.y0OverA);
+    var kmin = M.kappaMinOfCutoff(t.a, k, 3);
+    var tO = Date.now(); var scO = AD.wireScene({ lambda: t.lambda, a: t.a, y0OverA: t.y0OverA, d: dOld }); var msO = Date.now() - tO;
+    var tN = Date.now(); var scN = AD.wireScene({ lambda: t.lambda, a: t.a, y0OverA: t.y0OverA, d: dNew }); var msN = Date.now() - tN;
+    var first = true;
+    for (var n = 1; n <= 3; n++) {
+      var kap = M.theoryKappa(n, t.a, k), kz = M.theoryKz(n, t.a, k);
+      var cp = M.coupling(n, t.y0OverA);
+      var kind, thy, cells;
+      if (cp < 1e-12) { kind = '—'; thy = null; cells = ['결합 0 (여기 안 됨)', '결합 0 (여기 안 됨)']; }
+      else if (kap === null && kz === null) {
+        // k = k_c 문턱. κ = k_z = 0 이고 모드 진폭이 1/k_z 로 발산한다 → 이론값이 없다.
+        kind = '문턱'; thy = null; cells = ['— (k = k_c)', '— (k = k_c)'];
+      } else if (kap !== null) {
+        kind = 'κ'; thy = kap;
+        cells = [[scO, dOld, true], [scN, dNew, false]].map(function (q) {
+          var r = M.measureKappa(q[0].tot, t.a, n, GEO.KAPPA_WIN, 1e-12, kap);   // 가드는 아래서 각각 적용
+          var pass = q[2] ? (1 / kap >= q[1]) : (kap * q[1] <= GEO.KAPPA_D_MAX);
+          if (!pass) return '가드 차단 (κ·d=' + (kap * q[1]).toFixed(3) + ')';
+          if (r.value === null) return r.reason;
+          return (r.value * 10).toFixed(4) + ' (' + (r.value / kap * 100 - 100 >= 0 ? '+' : '') +
+                 (r.value / kap * 100 - 100).toFixed(2) + '%)';
+        });
+      } else {
+        kind = 'k_z'; thy = kz;
+        cells = [scO, scN].map(function (sc) {
+          var r = M.measureKz(sc.tot, t.a, n, kz, kmin);
+          if (r.value === null) return r.reason;
+          return (r.value * 10).toFixed(4) + ' (' + (r.value / kz * 100 - 100 >= 0 ? '+' : '') +
+                 (r.value / kz * 100 - 100).toFixed(2) + '%)';
+        });
+      }
+      L('  ' + (first ? padR(' ' + t.n, 6) : ' '.repeat(6)) + pad('m' + n, 4) + pad(kind, 6) + '  ' +
+        padR(thy === null ? '—' : (thy * 10).toFixed(4), 12) +
+        padR(first ? (dOld.toFixed(3) + '/' + 2 * GEO.nWires(dOld)) : '', 12) + '  ' + padR(cells[0], 22) +
+        padR(first ? (dNew.toFixed(3) + '/' + 2 * GEO.nWires(dNew)) : '', 12) + '  ' + padR(cells[1], 20) +
+        (first ? pad(msO + '→' + msN, 9) : ''));
+      first = false;
+    }
+    L('  ' + padR('', 6) + '  ' + t.note + (Math.abs(dNew - dOld) > 1e-9 ? '   · d 변경 ' + dOld.toFixed(3) + ' → ' + dNew.toFixed(3) : '   · d 불변'));
+  });
+  L('  ' + '-'.repeat(112));
+  L();
+  L('  ▸ T4 모드1 각주: λ = 2a 라 k 와 k_c 가 부동소수점상 비트 단위로 같다 (k − k_c = 0).');
+  L('    κ = k_z = 0 이고 선파원이 여기하는 모드 진폭이 1/k_z 로 발산하므로 이론값이 없다.');
+  L('    모드합(정확해) 열도 이 조건에서는 정의되지 않는다 — 비교 기준 자체가 존재하지 않는다.');
+  L('    유한 길이 열린 관에서 나오는 수치는 관 길이 L이 정한 값이지 모드의 성질이 아니다.');
+}
+
 /* ------------------------------------------------------------------- 실행 */
 var want = process.argv.slice(2);
 var T0 = Date.now();
 [['G0', runG0], ['G1', runG1], ['G2', runG2], ['G2-WALL', runG2WALL], ['G2-PROFILE', runG2P],
- ['G3', runG3], ['G3-AW', runG3AW], ['G4', runG4], ['G5', runG5], ['TIME', runTIME]].forEach(function (g) {
+ ['G3', runG3], ['G3-AW', runG3AW], ['G4', runG4], ['G5', runG5], ['TAB3', runTAB3], ['D-DSCAN', runDSCAN], ['TIME', runTIME]].forEach(function (g) {
   if (want.length && want.indexOf(g[0]) < 0) return;
   var t = Date.now();
   g[1]();

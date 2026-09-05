@@ -2,10 +2,34 @@
   'use strict';
   // 진행축 z를 core.js의 위치 첫 인자(x)에 그대로 전달한다 (좌표 어댑터).
 
-  function dAuto(lambda, L, Nmax) {
-    var floor = L / Nmax, cap = 0.1 * lambda, target = 0.055 * lambda;
-    return Math.min(cap, Math.max(target, floor));
+  /* 도선 간격 자동 규칙.
+   *   d_auto = min( 0.055λ,  C/κ_max )   → 하한·상한으로 클램프
+   * 둘째 항이 새로 붙었다. 도선 열이 연속 도체 벽을 대신하려면 벽을 따라가는 차단 모드의
+   * 한 칸당 변화 e^{−κd} 가 충분히 작아야 하고, 그 무차원량 κ·d 에 상한 C 가 있다.
+   * 근거와 값은 unified/geometry.js:KAPPA_D_MAX 주석 참조 (측정으로 정했다).
+   * opts 를 주지 않으면 종전 규칙 그대로다 — line-wire/higher-order 앱은 영향받지 않는다.
+   *
+   * opts = { kappaMax, C, minD }
+   *   kappaMax : 차단이면서 결합계수가 수치적 0이 아닌 모드의 최대 κ (없으면 둘째 항 미적용)
+   *   C        : κ·d 상한
+   *   minD     : 하한. 기본은 종전대로 L/Nmax (도선 예산). unified 는 격자 1셀도 함께 건다. */
+  function dAutoDetail(lambda, L, Nmax, opts) {
+    opts = opts || {};
+    var target = 0.055 * lambda, cap = 0.1 * lambda;
+    var lo = (opts.minD === undefined) ? (L / Nmax) : opts.minD;
+    var d = target, why = '0.055λ';
+    if (opts.kappaMax && isFinite(opts.kappaMax) && opts.kappaMax > 0 && opts.C > 0) {
+      var dk = opts.C / opts.kappaMax;
+      if (dk < d) { d = dk; why = 'C/κ_max'; }
+    }
+    var clampedLo = false, clampedCap = false;
+    if (d < lo)  { d = lo;  clampedLo  = true; why = '하한 ' + lo.toFixed(3); }
+    if (d > cap) { d = cap; clampedCap = true; why = '상한 0.1λ'; }
+    return { d: d, why: why, clampedLo: clampedLo, clampedCap: clampedCap,
+             target: target, cap: cap, minD: lo,
+             kappaMax: opts.kappaMax || null, C: opts.C || null };
   }
+  function dAuto(lambda, L, Nmax, opts) { return dAutoDetail(lambda, L, Nmax, opts).d; }
 
   function modeCoefGridN(field, y0, a, n) {
     var Nx = field.Nx, Ny = field.Ny, re = field.re, im = field.im;
@@ -143,7 +167,7 @@
     };
   }
 
-  var API = { dAuto: dAuto, modeCoefGridN: modeCoefGridN, modeCoefComplexAtN: modeCoefComplexAtN, theoryKappa: theoryKappa, theoryKz: theoryKz, theoryPropAmp: theoryPropAmp, fitWindowZ: fitWindowZ, kappaWindowN: kappaWindowN, measureKappaN: measureKappaN, measureKzN: measureKzN, wallTransmittanceT: wallTransmittanceT, computeScene: computeScene };
+  var API = { dAuto: dAuto, dAutoDetail: dAutoDetail, modeCoefGridN: modeCoefGridN, modeCoefComplexAtN: modeCoefComplexAtN, theoryKappa: theoryKappa, theoryKz: theoryKz, theoryPropAmp: theoryPropAmp, fitWindowZ: fitWindowZ, kappaWindowN: kappaWindowN, measureKappaN: measureKappaN, measureKzN: measureKzN, wallTransmittanceT: wallTransmittanceT, computeScene: computeScene };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else { global.WGM = global.WGM || {}; Object.assign(global.WGM, API); }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
